@@ -46,6 +46,7 @@ public class BackroomsMod {
         ITEMS.register(modEventBus);
         CREATIVE_MODE_TABS.register(modEventBus);
         BackroomsWorldgen.GENERATORS.register(modEventBus);
+        BackroomsSounds.SOUND_EVENTS.register(modEventBus);
 
         // Register ourselves for server and other game events we are interested in.
         NeoForge.EVENT_BUS.register(this);
