@@ -55,6 +55,7 @@ public class Level0Generator extends ChunkGenerator {
     private static final int ROOM_MEZZANINE = 2;
     private static final int ROOM_HOLES = 3;
     private static final int ROOM_BLACKOUT = 4;
+    private static final int ROOM_TALL = 5; // huge empty warehouse hall
 
     private Level0Plan plan;
 
@@ -103,7 +104,7 @@ public class Level0Generator extends ChunkGenerator {
         int roomType = ROOM_PLAIN;
         if (room != null) {
             roomType = pickRoomType(room.cx(), room.cz());
-            tallRoom = roomType == ROOM_PILLARS || roomType == ROOM_MEZZANINE;
+            tallRoom = roomType == ROOM_PILLARS || roomType == ROOM_MEZZANINE || roomType == ROOM_TALL;
         }
 
         // ---- Pass 1: fill the whole chunk solid from floor to ceiling ----
@@ -124,9 +125,13 @@ public class Level0Generator extends ChunkGenerator {
                 for (int y = FLOOR_Y + 1; y <= ceilHere - 1; y++) {
                     chunk.setBlockState(new BlockPos(x, y, z), wallpaper, false);
                 }
-                // Flat roof cap above tall rooms so their height never pokes out
+                // Flat roof cap above tall rooms so their height never pokes out.
+                // Fill the whole column between the local ceiling and the cap so
+                // tall rooms never leave hollow box edges visible from outside.
                 if (inRoom && tallRoom) {
-                    chunk.setBlockState(new BlockPos(x, TALL_CEILING_Y + 1, z), ceilingTile, false);
+                    for (int y = CEILING_Y + 1; y <= TALL_CEILING_Y; y++) {
+                        chunk.setBlockState(new BlockPos(x, y, z), ceilingTile, false);
+                    }
                 }
                 // Ceiling with lights
                 BlockState ceilingState = (lx % LIGHT_EVERY == 3 && lz % LIGHT_EVERY == 3)
@@ -149,13 +154,21 @@ public class Level0Generator extends ChunkGenerator {
             }
         }
 
-        // Spawn safety: carve a small chamber at the entry point so
-        // /backrooms enter never drops the player inside solid mass.
+        // Spawn safety: carve a chamber at the entry point plus a hallway that
+        // runs south until it hits the cell's south corridor (guaranteed exit).
         if (pos.x == 0 && pos.z == 0) {
             for (int x = baseX + 3; x <= baseX + 13; x++) {
                 for (int z = baseZ + 3; z <= baseZ + 13; z++) {
                     for (int y = FLOOR_Y + 1; y <= CEILING_Y - 1; y++) {
                         chunk.setBlockState(new BlockPos(x, y, z), air, false);
+                    }
+                }
+            }
+            // Straight hallway at x = 8 running south from the chamber
+            for (int z = baseZ + 8; z <= baseZ + 47; z++) {
+                for (int w = -1; w <= 1; w++) {
+                    for (int y = FLOOR_Y + 1; y <= CEILING_Y - 1; y++) {
+                        chunk.setBlockState(new BlockPos(baseX + 8 + w, y, z), air, false);
                     }
                 }
             }
@@ -207,22 +220,25 @@ public class Level0Generator extends ChunkGenerator {
                 }
             }
             case ROOM_MEZZANINE -> {
-                // Second floor slab over half the room + solid stairs up along one wall
-                for (int x = rMinX; x <= rMaxX; x++) {
-                    for (int z = rMinZ; z <= (rMinZ + rMaxZ) / 2; z++) {
+                // Second floor slab over half the room, tall ceiling so the
+                // upper level has full headroom; stairs rise onto the slab.
+                // Slab and stairs stay at least 2 blocks clear of the room
+                // walls so nothing sticks out of the room's own bounds.
+                int slabZ = (rMinZ + rMaxZ) / 2;
+                for (int x = rMinX + 2; x <= rMaxX - 2; x++) {
+                    for (int z = rMinZ + 2; z <= slabZ; z++) {
                         chunk.setBlockState(new BlockPos(x, 71, z), carpet, false);
                     }
                 }
-                // Stairs along the east wall climbing north->up onto the slab
-                for (int z = rMaxZ; z > (rMinZ + rMaxZ) / 2; z--) {
-                    int step = rMaxZ - z; // 1..N
-                    int top = 65 + step;
-                    if (top >= 71) break;
-                    for (int x = rMaxX - 1; x <= rMaxX; x++) {
-                        for (int y = FLOOR_Y + 1; y <= top; y++) {
-                            chunk.setBlockState(new BlockPos(x, y, z),
-                                    y == top ? carpet : wallpaper, false);
+                // Solid staircase hugging the slab edge, carved within room bounds
+                for (int z = slabZ + 1; z <= rMaxZ - 2 && z <= slabZ + 7; z++) {
+                    int top = 65 + (z - slabZ); // 66..71
+                    if (top > 71) break;
+                    for (int x = rMaxX - 4; x <= rMaxX - 2; x++) {
+                        for (int y = FLOOR_Y + 1; y <= top - 1; y++) {
+                            chunk.setBlockState(new BlockPos(x, y, z), wallpaper, false);
                         }
+                        chunk.setBlockState(new BlockPos(x, top, z), carpet, false);
                     }
                 }
             }
@@ -247,6 +263,11 @@ public class Level0Generator extends ChunkGenerator {
                 }
             }
             case ROOM_BLACKOUT -> { /* plain dark room, no extra carving */ }
+            case ROOM_TALL -> {
+                // Huge empty warehouse hall: nothing inside, the tall ceiling
+                // and sparse lights carry the atmosphere. Room bounds already
+                // cover most of the cell.
+            }
             default -> { /* plain room */ }
         }
     }
@@ -265,11 +286,13 @@ public class Level0Generator extends ChunkGenerator {
         h *= 0x94D049BB133111EBL;
         h ^= h >>> 32;
         int v = (int) Math.floorMod(h, 100);
-        if (v < 40) return ROOM_PLAIN;
-        if (v < 62) return ROOM_PILLARS;
-        if (v < 78) return ROOM_MEZZANINE;
-        if (v < 90) return ROOM_HOLES;
-        return ROOM_BLACKOUT;
+        if (v < 25) return ROOM_PLAIN;
+        if (v < 45) return ROOM_PILLARS;
+        if (v < 60) return ROOM_MEZZANINE;
+        if (v < 75) return ROOM_HOLES;
+        if (v < 85) return ROOM_BLACKOUT;
+        // v 85..99: mega hall, carved over the whole cell (24 wide room + tall ceiling)
+        return ROOM_TALL;
     }
 
     @Override

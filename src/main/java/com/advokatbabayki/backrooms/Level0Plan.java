@@ -88,8 +88,9 @@ public final class Level0Plan {
     public Room room(int cx, int cz) {
         long h = hash(seed, cx, cz, SALT_ROOM);
         Random r = new Random(h);
-        int size = 5 + r.nextInt(8); // 5..12
-        // Center within the safe middle band so rooms never touch cell borders
+        int size = 11 + r.nextInt(14); // 11..24: rooms dominate their cell, corridors stitch between them
+        // Center in the middle band; big rooms may hug cell edges, which is fine
+        // because the solid mass guarantees walls everywhere else.
         int centerX = cellMinBlock(cx) + 16 + r.nextInt(17); // 16..32
         int centerZ = cellMinBlock(cz) + 16 + r.nextInt(17);
         return new Room(cx, cz, centerX, centerZ, size);
