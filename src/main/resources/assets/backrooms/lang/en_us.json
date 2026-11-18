@@ -1,4 +1,8 @@
 {
   "itemGroup.backrooms": "Backrooms",
-  "item.backrooms.almond_water": "Almond Water"
+  "item.backrooms.almond_water": "Almond Water",
+  "block.backrooms.yellow_wallpaper": "Yellow Wallpaper",
+  "block.backrooms.moist_carpet": "Moist Carpet",
+  "block.backrooms.ceiling_tile": "Ceiling Tile",
+  "block.backrooms.fluorescent_panel": "Fluorescent Panel"
 }

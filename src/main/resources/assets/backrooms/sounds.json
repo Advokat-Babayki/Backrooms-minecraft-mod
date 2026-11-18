@@ -1,0 +1,6 @@
+{
+  "hum": {
+    "category": "ambient",
+    "sounds": [{ "name": "backrooms:hum", "stream": false, "attenuation_distance": 0 }]
+  }
+}

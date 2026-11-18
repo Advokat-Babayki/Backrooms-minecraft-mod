@@ -1,4 +1,8 @@
 {
   "itemGroup.backrooms": "Бэкрумс",
-  "item.backrooms.almond_water": "Миндальная вода"
+  "item.backrooms.almond_water": "Миндальная вода",
+  "block.backrooms.yellow_wallpaper": "Жёлтые обои",
+  "block.backrooms.moist_carpet": "Влажный ковёр",
+  "block.backrooms.ceiling_tile": "Потолочная плитка",
+  "block.backrooms.fluorescent_panel": "Флуоресцентная лампа"
 }

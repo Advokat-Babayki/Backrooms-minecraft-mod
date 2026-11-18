@@ -24,7 +24,7 @@ public class BackroomsMod {
     public static final String MODID = "backrooms";
     public static final Logger LOGGER = LogUtils.getLogger();
 
-    public static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(MODID);
+    public static final DeferredRegister.Items ITEMS = BackroomsBlocks.ITEMS;
     public static final DeferredRegister<CreativeModeTab> CREATIVE_MODE_TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MODID);
 
     public static final DeferredItem<Item> ALMOND_WATER = ITEMS.registerSimpleItem("almond_water");
@@ -34,12 +34,20 @@ public class BackroomsMod {
             .icon(() -> ALMOND_WATER.get().getDefaultInstance())
             .displayItems((parameters, output) -> {
                 output.accept(ALMOND_WATER.get());
+                output.accept(BackroomsBlocks.YELLOW_WALLPAPER_ITEM.get());
+                output.accept(BackroomsBlocks.MOIST_CARPET_ITEM.get());
+                output.accept(BackroomsBlocks.CEILING_TILE_ITEM.get());
+                output.accept(BackroomsBlocks.FLUORESCENT_PANEL_ITEM.get());
             }).build());
 
     public BackroomsMod(IEventBus modEventBus, ModContainer modContainer) {
         modEventBus.addListener(this::commonSetup);
+        BackroomsBlocks.BLOCKS.register(modEventBus);
         ITEMS.register(modEventBus);
         CREATIVE_MODE_TABS.register(modEventBus);
+        BackroomsWorldgen.GENERATORS.register(modEventBus);
+
+        // Register ourselves for server and other game events we are interested in.
         NeoForge.EVENT_BUS.register(this);
     }
 
