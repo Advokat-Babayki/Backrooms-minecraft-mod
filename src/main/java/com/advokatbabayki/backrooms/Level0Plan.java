@@ -57,12 +57,12 @@ public final class Level0Plan {
 
     /** True when the cell (cx,cz) links to its east neighbor with a corridor. */
     public boolean pathEast(int cx, int cz) {
-        return (hash(seed, cx, cz, SALT_PATHS) & 1) == 0;
+        return true; // every cell links east: the maze is a fully connected lattice
     }
 
     /** True when the cell (cx,cz) links to its south neighbor with a corridor. */
     public boolean pathSouth(int cx, int cz) {
-        return (hash(seed, cx, cz, SALT_PATHS + 1) & 1) == 1;
+        return true; // every cell links south
     }
 
     /**
@@ -122,18 +122,18 @@ public final class Level0Plan {
         int chunkInCellX = Math.floorMod(chunkX, CHUNKS_PER_CELL);
         int chunkInCellZ = Math.floorMod(chunkZ, CHUNKS_PER_CELL);
 
-        // ---- Corridors: each cell has an east exit and a south exit ----
+        // ---- Corridors: every cell links east and south (fully connected maze) ----
         // East corridor of cell (cx,cz): center line z = eastCorridorZ, x spans the whole cell.
         for (int dcx = -1; dcx <= 0; dcx++) {
             int cx = cellX + dcx;
             int cz = cellZ;
-            if (!pathEast(cx, cz)) continue;
             int centerZCell = cellMinBlock(cz) + eastCorridorZ(cx, cz);
             int drift = corridorDrift(cx, cz);
             // The corridor spans the source cell from its west edge to the shared east edge.
             int fromX = cellMinBlock(cx);
             int toX = cellMinBlock(cx + 1); // exclusive
-            // Drift: bend the corridor inside the source cell for organic curves
+            // Drift: bend the corridor inside the source cell for organic curves.
+            // Same value on both sides of the shared chunk column so pieces line up.
             int centerZ = centerZCell + drift * (chunkInCellZ - 1); // gentle shift per chunk column
             addEW(segments, blockMinX, blockMaxX, blockMinZ, blockMaxZ, fromX, toX - 1, centerZ);
         }
@@ -141,7 +141,6 @@ public final class Level0Plan {
         for (int dcz = -1; dcz <= 0; dcz++) {
             int cz = cellZ + dcz;
             int cx = cellX;
-            if (!pathSouth(cx, cz)) continue;
             int centerXCell = cellMinBlock(cx) + southCorridorX(cx, cz);
             int drift = corridorDrift(cx, cz);
             int fromZ = cellMinBlock(cz);
@@ -150,15 +149,13 @@ public final class Level0Plan {
             addNS(segments, blockMinX, blockMaxX, blockMinZ, blockMaxZ, fromZ, toZ - 1, centerX);
         }
 
-        // ---- Room: carve the anchor room, doors where corridors pass near it ----
+        // ---- Room: carved wherever its bounds intersect this chunk ----
         Room room = room(cellX, cellZ);
-        boolean containsRoom = chunkInCellX > 0 && chunkInCellZ > 0; // rooms live in the middle chunks
-        // Actually allow any chunk that intersects the room bounds:
         int rMinX = room.centerX - room.size / 2;
         int rMaxX = room.centerX + room.size / 2;
         int rMinZ = room.centerZ - room.size / 2;
         int rMaxZ = room.centerZ + room.size / 2;
-        containsRoom = overlaps(blockMinX, blockMaxX, blockMinZ, blockMaxZ, rMinX, rMaxX, rMinZ, rMaxZ);
+        boolean containsRoom = overlaps(blockMinX, blockMaxX, blockMinZ, blockMaxZ, rMinX, rMaxX, rMinZ, rMaxZ);
 
         return new ChunkPlan(segments, containsRoom ? room : null);
     }

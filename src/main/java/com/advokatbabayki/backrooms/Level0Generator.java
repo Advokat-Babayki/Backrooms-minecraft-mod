@@ -119,9 +119,14 @@ public class Level0Generator extends ChunkGenerator {
 
                 // Floor
                 chunk.setBlockState(new BlockPos(x, FLOOR_Y, z), carpet, false);
-                // Solid mass
+                // Solid mass between floor and ceiling; above the ceiling nothing
+                // is generated, so the level has no block stubs on its roof
                 for (int y = FLOOR_Y + 1; y <= ceilHere - 1; y++) {
                     chunk.setBlockState(new BlockPos(x, y, z), wallpaper, false);
+                }
+                // Flat roof cap above tall rooms so their height never pokes out
+                if (inRoom && tallRoom) {
+                    chunk.setBlockState(new BlockPos(x, TALL_CEILING_Y + 1, z), ceilingTile, false);
                 }
                 // Ceiling with lights
                 BlockState ceilingState = (lx % LIGHT_EVERY == 3 && lz % LIGHT_EVERY == 3)
@@ -137,6 +142,19 @@ public class Level0Generator extends ChunkGenerator {
                     int x = seg.kind() == Level0Plan.SEG_EW ? a : seg.fixed() + w;
                     int z = seg.kind() == Level0Plan.SEG_EW ? seg.fixed() + w : a;
                     if (x < baseX || x > baseX + 15 || z < baseZ || z > baseZ + 15) continue;
+                    for (int y = FLOOR_Y + 1; y <= CEILING_Y - 1; y++) {
+                        chunk.setBlockState(new BlockPos(x, y, z), air, false);
+                    }
+                }
+            }
+        }
+
+        // Spawn safety: carve a small chamber at the entry point (8,65,8 of chunk 0,0)
+        // so /backrooms enter never drops the player inside solid mass.
+        int spawnChunkX = 0, spawnChunkZ = 0;
+        if (chunkX == spawnChunkX && chunkZ == spawnChunkZ) {
+            for (int x = 3; x <= 13; x++) {
+                for (int z = 3; z <= 13; z++) {
                     for (int y = FLOOR_Y + 1; y <= CEILING_Y - 1; y++) {
                         chunk.setBlockState(new BlockPos(x, y, z), air, false);
                     }
@@ -270,6 +288,11 @@ public class Level0Generator extends ChunkGenerator {
         return 0;
     }
 
+    /**
+     * Heightmap must reflect carved space, otherwise the game thinks solid mass
+     * is the surface and spawns/teleports bury the player. Answer with the
+     * corridor walk height everywhere: the level is 3 blocks tall inside.
+     */
     @Override
     public int getBaseHeight(int x, int z, Heightmap.Types type, LevelHeightAccessor level, RandomState random) {
         return FLOOR_Y + 1;
