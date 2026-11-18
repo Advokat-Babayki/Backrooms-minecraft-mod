@@ -2,6 +2,7 @@ package com.advokatbabayki.backrooms;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 
 import com.mojang.serialization.MapCodec;
@@ -209,12 +210,21 @@ public class Level0Generator extends ChunkGenerator {
                 }
             }
             case ROOM_HOLES -> {
-                // One 3x3 pit in the room center, deep and dark
-                int cx = (rMinX + rMaxX) / 2, cz = (rMinZ + rMaxZ) / 2;
-                for (int x = cx - 1; x <= cx + 1; x++) {
-                    for (int z = cz - 1; z <= cz + 1; z++) {
-                        for (int y = FLOOR_Y; y > FLOOR_Y - 13; y--) {
-                            chunk.setBlockState(new BlockPos(x, y, z), air, false);
+                // Floor slabs torn out: several irregular floor gaps with dark shallow
+                // depth, matching the reference art (no deep shafts, sharp edges).
+                Random rand = new Random(hashRoom(room.cx(), room.cz(), 777L));
+                int gapCount = 2 + rand.nextInt(5); // 2..6
+                for (int g = 0; g < gapCount; g++) {
+                    int w = 3 + rand.nextInt(5); // 3..7
+                    int d = 3 + rand.nextInt(3); // 3..5
+                    int gx = rMinX + rand.nextInt(Math.max(1, rMaxX - rMinX - w + 1));
+                    int gz = rMinZ + rand.nextInt(Math.max(1, rMaxZ - rMinZ - d + 1));
+                    for (int x = Math.max(rMinX, gx); x <= Math.min(rMaxX, gx + w - 1); x++) {
+                        for (int z = Math.max(rMinZ, gz); z <= Math.min(rMaxZ, gz + d - 1); z++) {
+                            // Tear the floor out down to bare dark depth
+                            for (int y = FLOOR_Y; y >= FLOOR_Y - 3; y--) {
+                                chunk.setBlockState(new BlockPos(x, y, z), air, false);
+                            }
                         }
                     }
                 }
@@ -222,6 +232,14 @@ public class Level0Generator extends ChunkGenerator {
             case ROOM_BLACKOUT -> { /* plain dark room, no extra carving */ }
             default -> { /* plain room */ }
         }
+    }
+
+    private static long hashRoom(int cx, int cz, long salt) {
+        long h = (cx * 0x9E3779B97F4A7C15L) ^ (cz * 0xBF58476D1CE4E5B9L) ^ (salt * 0x94D049BB133111EBL);
+        h ^= h >>> 29;
+        h *= 0x165667B19E3779F9L;
+        h ^= h >>> 32;
+        return h;
     }
 
     private static int pickRoomType(int cx, int cz) {

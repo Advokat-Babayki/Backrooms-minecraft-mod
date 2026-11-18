@@ -1,3 +1,6 @@
+### Reference art ###
+Для вдохновения/
+
 ### Gradle ###
 .gradle
 build/
@@ -38,3 +41,6 @@ run/
 **/src/generated/**/.cache/
 repo/
 !**/src/**/repo/
+
+### Reference art ###
+Для вдохновения/

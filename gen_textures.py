@@ -31,16 +31,16 @@ def png(name, fn):
 
 # Yellow wallpaper: mono-yellow with mottled noise and faint vertical stripes
 def wallpaper(x, y):
-    n = h2(x, y, 1) * 24 - 12
-    stripe = -18 if x % 8 == 0 else 0
-    stain = 14 if h2(x // 4, y // 4, 2) > 0.82 else 0
-    return (199 + n + stripe + stain, 178 + n + stripe + stain * 0.6, 106 + n + stripe + stain * 0.4, 255)
+    n = h2(x, y, 1) * 26 - 13
+    stripe = -20 if x % 8 == 0 else 0
+    stain = 16 if h2(x // 4, y // 4, 2) > 0.80 else 0
+    return (172 + n + stripe + stain, 143 + n + stripe + stain * 0.6, 55 + n + stripe + stain * 0.4, 255)
 
-# Moist carpet: dull, heavily mottled yellow-brown
+# Moist carpet: dull, heavily mottled brownish beige (matches the darker art palette)
 def carpet(x, y):
-    n = h2(x, y, 3) * 44 - 22
-    blotch = -20 if h2(x // 3, y // 3, 4) > 0.7 else 0
-    return (138 + n + blotch, 123 + n + blotch, 79 + n + blotch, 255)
+    n = h2(x, y, 3) * 40 - 20
+    blotch = -18 if h2(x // 3, y // 3, 4) > 0.7 else 0
+    return (118 + n + blotch, 105 + n + blotch, 64 + n + blotch, 255)
 
 # Ceiling tile: pale with grid seams
 def ceiling(x, y):
