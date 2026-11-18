@@ -71,8 +71,9 @@ public class Level0Generator extends ChunkGenerator {
         int floorShift = (roomType == ROOM_STAIRS) ? (rand.nextBoolean() ? -3 : 3) : 0;
         int floorY = FLOOR_Y + floorShift;
 
-        int westDoorZ = 1 + rand.nextInt(13);
-        int northDoorX = 1 + rand.nextInt(13);
+        // Deterministic 3-wide doorway offsets: 1..12 so a 3-wide gap fits inside the room
+        int westDoorZ = 1 + rand.nextInt(12);
+        int northDoorX = 1 + rand.nextInt(12);
 
         int baseX = pos.getMinBlockX();
         int baseZ = pos.getMinBlockZ();
@@ -86,9 +87,9 @@ public class Level0Generator extends ChunkGenerator {
                 chunk.setBlockState(new BlockPos(x, floorY, z), carpet, false);
                 placeCeiling(chunk, x, z, lx, lz, floorY, ceilingY, ceiling, light);
 
-                // Walls along chunk borders with doorways
-                boolean westWall = lx == 0 && !(lz >= westDoorZ && lz <= westDoorZ + 1);
-                boolean northWall = lz == 0 && !(lx >= northDoorX && lx <= northDoorX + 1);
+                // Walls along chunk borders with 3-wide doorways
+                boolean westWall = lx == 0 && !(lz >= westDoorZ && lz <= westDoorZ + 2);
+                boolean northWall = lz == 0 && !(lx >= northDoorX && lx <= northDoorX + 2);
                 if (westWall || northWall) {
                     for (int y = floorY + 1; y <= ceilingY - 1; y++) {
                         chunk.setBlockState(new BlockPos(x, y, z), wallpaper, false);
@@ -111,8 +112,8 @@ public class Level0Generator extends ChunkGenerator {
                     }
                 }
 
-                // Holes: dark pits in the floor on a 6x6 grid
-                if (roomType == ROOM_HOLES && lx % 6 == 3 && lz % 6 == 3) {
+                // Holes: dark 3x3 pits in the floor on a 6x6 grid
+                if (roomType == ROOM_HOLES && lx % 6 >= 3 && lx % 6 <= 5 && lz % 6 >= 3 && lz % 6 <= 5) {
                     for (int y = floorY; y >= floorY - 8; y--) {
                         chunk.setBlockState(new BlockPos(x, y, z), net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), false);
                     }
