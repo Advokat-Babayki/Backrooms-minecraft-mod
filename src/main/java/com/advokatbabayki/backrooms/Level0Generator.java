@@ -149,12 +149,11 @@ public class Level0Generator extends ChunkGenerator {
             }
         }
 
-        // Spawn safety: carve a small chamber at the entry point (8,65,8 of chunk 0,0)
-        // so /backrooms enter never drops the player inside solid mass.
-        int spawnChunkX = 0, spawnChunkZ = 0;
-        if (chunkX == spawnChunkX && chunkZ == spawnChunkZ) {
-            for (int x = 3; x <= 13; x++) {
-                for (int z = 3; z <= 13; z++) {
+        // Spawn safety: carve a small chamber at the entry point so
+        // /backrooms enter never drops the player inside solid mass.
+        if (pos.x == 0 && pos.z == 0) {
+            for (int x = baseX + 3; x <= baseX + 13; x++) {
+                for (int z = baseZ + 3; z <= baseZ + 13; z++) {
                     for (int y = FLOOR_Y + 1; y <= CEILING_Y - 1; y++) {
                         chunk.setBlockState(new BlockPos(x, y, z), air, false);
                     }
