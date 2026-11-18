@@ -5,7 +5,9 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.mojang.brigadier.Command;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 
+import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -38,8 +40,8 @@ public final class BackroomsCommands {
                 .then(Commands.literal("leave").executes(ctx -> leave(ctx.getSource()))));
     }
 
-    private static int enter(net.minecraft.commands.CommandSourceStack source) throws Exception {
-        ServerPlayer player = source.getPlayerOrThrow();
+    private static int enter(CommandSourceStack source) throws CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
         ServerLevel level0 = source.getServer().getLevel(LEVEL0);
         if (level0 == null) {
             source.sendFailure(Component.literal("Level 0 dimension is missing"));
@@ -51,8 +53,8 @@ public final class BackroomsCommands {
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int leave(net.minecraft.commands.CommandSourceStack source) throws Exception {
-        ServerPlayer player = source.getPlayerOrThrow();
+    private static int leave(CommandSourceStack source) throws CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
         ReturnPoint point = RETURN_POINTS.remove(player.getUUID());
         if (point == null) {
             source.sendFailure(Component.literal("You never entered the Backrooms... or you already left."));

@@ -1,7 +1,7 @@
 package com.advokatbabayki.backrooms;
 
 import net.minecraft.core.registries.Registries;
-import net.minecraft.world.level.levelgen.chunk.ChunkGenerator;
+import net.minecraft.world.level.chunk.ChunkGenerator;
 import com.mojang.serialization.MapCodec;
 import net.neoforged.neoforge.registries.DeferredRegister;
 

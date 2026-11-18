@@ -2,17 +2,18 @@ package com.advokatbabayki.backrooms;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
+import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.LevelHeightAccessor;
 import net.minecraft.world.level.NoiseColumn;
-import net.minecraft.world.level.WorldGenRegion;
+import net.minecraft.world.level.StructureManager;
+import net.minecraft.world.level.biome.BiomeManager;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -21,8 +22,6 @@ import net.minecraft.world.level.levelgen.GenerationStep;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.blending.Blender;
-import net.minecraft.world.level.levelgen.structure.StructureManager;
-
 /**
  * Level 0: an endless grid of office rooms.
  * Floor is moist carpet at y=64, walking space y=65..67, ceiling tiles at y=68.
@@ -47,7 +46,7 @@ public class Level0Generator extends ChunkGenerator {
     }
 
     @Override
-    public CompletableFuture<ChunkAccess> fillFromNoise(Executor executor, Blender blender, RandomState randomState,
+    public CompletableFuture<ChunkAccess> fillFromNoise(Blender blender, RandomState randomState,
             StructureManager structureManager, ChunkAccess chunk) {
         BlockState carpet = BackroomsBlocks.MOIST_CARPET.get().defaultBlockState();
         BlockState wallpaper = BackroomsBlocks.YELLOW_WALLPAPER.get().defaultBlockState();
@@ -55,7 +54,7 @@ public class Level0Generator extends ChunkGenerator {
         BlockState light = BackroomsBlocks.FLUORESCENT_PANEL.get().defaultBlockState();
 
         ChunkPos pos = chunk.getPos();
-        RandomSource rand = chunkRandom(chunk);
+        RandomSource rand = chunkRandom(pos);
 
         // Deterministic doorway offsets: 1..13, two blocks wide
         int westDoorZ = 1 + rand.nextInt(13);
@@ -89,10 +88,9 @@ public class Level0Generator extends ChunkGenerator {
         return CompletableFuture.completedFuture(chunk);
     }
 
-    private static RandomSource chunkRandom(ChunkAccess chunk) {
-        long seed = chunk.getLevel().getSeed();
-        ChunkPos pos = chunk.getPos();
-        long mixed = seed ^ (pos.x * 341873128712L + pos.z * 132897987541L);
+    private static RandomSource chunkRandom(ChunkPos pos) {
+        // Level 0 architecture ignores the world seed so the maze is the same for everyone
+        long mixed = pos.x * 341873128712L + pos.z * 132897987541L;
         return RandomSource.create(mixed);
     }
 
@@ -107,6 +105,11 @@ public class Level0Generator extends ChunkGenerator {
     }
 
     @Override
+    public int getMinY() {
+        return 0;
+    }
+
+    @Override
     public int getBaseHeight(int x, int z, Heightmap.Types type, LevelHeightAccessor level, RandomState random) {
         return FLOOR_Y + 1;
     }
@@ -117,16 +120,16 @@ public class Level0Generator extends ChunkGenerator {
     }
 
     @Override
-    public void applyCarvers(WorldGenRegion region, long seed, RandomState random, StructureManager structureManager,
-            ChunkAccess chunk, GenerationStep.Carving step) {
+    public void applyCarvers(WorldGenRegion level, long seed, RandomState random, BiomeManager biomeManager,
+            StructureManager structureManager, ChunkAccess chunk, GenerationStep.Carving step) {
     }
 
     @Override
-    public void buildSurface(WorldGenRegion region, StructureManager structureManager, RandomState random, ChunkAccess chunk) {
+    public void buildSurface(WorldGenRegion level, StructureManager structureManager, RandomState random, ChunkAccess chunk) {
     }
 
     @Override
-    public void spawnOriginalMobs(WorldGenRegion region) {
+    public void spawnOriginalMobs(WorldGenRegion level) {
     }
 
     @Override
