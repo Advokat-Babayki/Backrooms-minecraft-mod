@@ -93,13 +93,13 @@ public class Level0Generator extends ChunkGenerator {
             }
         }
 
-        // ---- Pass 2: carve the route lines (with ramps where height changes) ----
+        // ---- Pass 2: carve the hallway links (with ramps where height changes) ----
         for (Level0Plan.Segment seg : chunkPlan.segments()) {
             if (seg.kind() == Level0Plan.SEG_EW) {
-                carveLine(chunk, plan, seg, baseX, baseZ, true,
+                carveLine(chunk, seg, baseX, baseZ, true,
                         carpet, ceilingTile, light, air, slabBottom);
             } else {
-                carveLine(chunk, plan, seg, baseX, baseZ, false,
+                carveLine(chunk, seg, baseX, baseZ, false,
                         carpet, ceilingTile, light, air, slabBottom);
             }
         }
@@ -115,29 +115,24 @@ public class Level0Generator extends ChunkGenerator {
     }
 
     /**
-     * Carves one route line segment. Where the line approaches a cell border
-     * whose neighbor sits at a different height, the last 2*delta blocks
-     * become a ramp: alternating bottom-slab / full-block steps of +0.5 each,
-     * walkable without jumping, ending flush with the neighbor's floor.
+     * Carves one hallway run. Ramp columns (rampBase..rampBase+2|delta|)
+     * become alternating bottom-slab / full-block steps of +0.5 each,
+     * walkable without jumping; the generator's caller pre-clips runs.
      */
-    private void carveLine(ChunkAccess chunk, Level0Plan plan, Level0Plan.Segment seg,
+    private void carveLine(ChunkAccess chunk, Level0Plan.Segment seg,
             int baseX, int baseZ, boolean alongX,
             BlockState carpet, BlockState ceilingTile, BlockState light, BlockState air,
             BlockState slabBottom) {
-        int h = seg.levelY();
-        int delta = alongX
-                ? plan.cellFloorY(seg.cx() + 1, seg.cz()) - h
-                : plan.cellFloorY(seg.cx(), seg.cz() + 1) - h;
-        int cellMax = (alongX ? seg.cx() + 1 : seg.cz() + 1) * Level0Plan.CELL_BLOCKS - 1;
-        int rampLen = 2 * Math.abs(delta);
+        int rampLen = seg.rampDelta() != 0 ? 2 * Math.abs(seg.rampDelta()) : 0;
 
         for (int a = seg.from(); a <= seg.to(); a++) {
-            int p = (delta != 0 && a > cellMax - rampLen) ? a - (cellMax - rampLen) : 0;
+            int p = rampLen > 0 && a >= seg.rampBase() && a < seg.rampBase() + rampLen
+                    ? a - seg.rampBase() + 1 : 0;
             for (int w = -CORRIDOR_HALF; w <= CORRIDOR_HALF; w++) {
                 int x = alongX ? a : seg.fixed() + w;
                 int z = alongX ? seg.fixed() + w : a;
                 if (x < baseX || x > baseX + 15 || z < baseZ || z > baseZ + 15) continue;
-                carveStep(chunk, x, z, h, p, delta, baseX, baseZ,
+                carveStep(chunk, x, z, seg.levelY(), p, seg.rampDelta(), baseX, baseZ,
                         carpet, ceilingTile, light, air, slabBottom);
             }
         }
@@ -208,8 +203,8 @@ public class Level0Generator extends ChunkGenerator {
 
         // Interior features
         switch (type) {
-            case Level0Plan.ROOM_PILLARS -> carvePillars(chunk, plan, room, baseX, baseZ, rMinX, rMaxX, rMinZ, rMaxZ, h);
-            case Level0Plan.ROOM_MEZZANINE -> carveMezzanine(chunk, plan, room, baseX, baseZ, rMinX, rMaxX, rMinZ, rMaxZ, h,
+            case Level0Plan.ROOM_PILLARS -> carvePillars(chunk, room, baseX, baseZ, rMinX, rMaxX, rMinZ, rMaxZ, h);
+            case Level0Plan.ROOM_MEZZANINE -> carveMezzanine(chunk, room, baseX, baseZ, rMinX, rMaxX, rMinZ, rMaxZ, h,
                     carpet, slabBottom);
             case Level0Plan.ROOM_HOLES -> carveHoles(chunk, room, baseX, baseZ, rMinX, rMaxX, rMinZ, rMaxZ, h,
                     air, slabBottom, slabTop);
@@ -228,21 +223,17 @@ public class Level0Generator extends ChunkGenerator {
     }
 
     /**
-     * Pillar forest. Pillars never stand on the straight route lines (the
-     * lines pass between them) and never on the room center (the entry point).
+     * Pillar forest. Pillars never stand on the room center (the entry
+     * point); the hallway mouths at the walls stay open either way.
      */
-    private void carvePillars(ChunkAccess chunk, Level0Plan plan, Level0Plan.Room room,
+    private void carvePillars(ChunkAccess chunk, Level0Plan.Room room,
             int baseX, int baseZ, int rMinX, int rMaxX, int rMinZ, int rMaxZ, int h) {
         BlockState wallpaper = BackroomsBlocks.YELLOW_WALLPAPER.get().defaultBlockState();
-        int lineZ = plan.lineZ(room.cz());
-        int lineX = plan.lineX(room.cx());
         for (int x = rMinX + 2; x <= rMaxX - 2; x += 3) {
             for (int z = rMinZ + 2; z <= rMaxZ - 2; z += 3) {
                 if (x < baseX || x > baseX + 15 || z < baseZ || z > baseZ + 15) continue;
-                boolean onEWLine = Math.abs(z - lineZ) <= 2;
-                boolean onNSLine = Math.abs(x - lineX) <= 2;
                 boolean atCenter = Math.abs(x - room.centerX()) <= 2 && Math.abs(z - room.centerZ()) <= 2;
-                if (onEWLine || onNSLine || atCenter) continue;
+                if (atCenter) continue;
                 for (int y = h + 1; y <= h + 15; y++) {
                     chunk.setBlockState(new BlockPos(x, y, z), wallpaper, false);
                 }
@@ -251,16 +242,17 @@ public class Level0Generator extends ChunkGenerator {
     }
 
     /**
-     * Mezzanine: a raised deck filling the corner farthest from the route
-     * crossing, with a slab staircase hugging the two walls of that corner.
-     * Deck and ramp are always clear of both route lines by construction.
+     * Mezzanine: a raised deck filling one hashed corner of the room, with a
+     * slab staircase hugging the two walls of that corner. The deck leaves a
+     * 3-high passage underneath and 11 blocks of headroom on top.
      */
-    private void carveMezzanine(ChunkAccess chunk, Level0Plan plan, Level0Plan.Room room,
+    private void carveMezzanine(ChunkAccess chunk, Level0Plan.Room room,
             int baseX, int baseZ, int rMinX, int rMaxX, int rMinZ, int rMaxZ, int h,
             BlockState carpet, BlockState slabBottom) {
         int half = room.size() / 2;
-        int sx = plan.lineX(room.cx()) > room.centerX() ? -1 : 1;
-        int sz = plan.lineZ(room.cz()) > room.centerZ() ? -1 : 1;
+        long hr = hashRoom(room.cx(), room.cz(), 42L);
+        int sx = Math.floorMod(hr, 2) == 0 ? -1 : 1;
+        int sz = Math.floorMod(hr >>> 16, 2) == 0 ? -1 : 1;
 
         // Deck: corner block layer at h+4
         int dX1 = Math.min(room.centerX() + sx * 3, room.centerX() + sx * (half - 2));
