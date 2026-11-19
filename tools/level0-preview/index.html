@@ -303,8 +303,8 @@
             <option value="384">384</option>
             <option value="480">480</option>
             <option value="640">640</option>
-            <option value="768" selected>768</option>
-            <option value="1024">1024</option>
+            <option value="768">768</option>
+            <option value="1024" selected>1024</option>
             <option value="1280">1280</option>
             <option value="1536">1536</option>
           </select>
@@ -358,11 +358,11 @@
   "use strict";
   const Core = window.Level0Core;
   const DEFAULTS = Core.DEFAULT_CONFIG;
-  const STORE_KEY = "backrooms.level0.preview.v2";
+  const STORE_KEY = "backrooms.level0.preview.v3";
 
   const state = {
     config: Object.assign({}, DEFAULTS),
-    view: { span: 768, cx: 0, cz: 0 }
+    view: { span: 1024, cx: 0, cz: 0 }
   };
   let lastBuild = null;
   let renderTimer = null;
@@ -372,55 +372,48 @@
   const SECTIONS = [
     {
       title: "Мир",
-      hint: "Сид полностью меняет рисунок. Остальные ползунки — форму этого рисунка.",
+      hint: "Сид меняет всю планировку целиком. Остальные ползунки — характер этого этажа.",
       items: [
         { key: "seed", label: "Сид мира", min: 0, max: 9999, step: 1 }
       ]
     },
     {
-      title: "Коридоры (паутина)",
-      hint: "Коридор — там, где шумовое поле близко к своей линии уровня. Шаг = длина волны изгибов, база ширины = толщина полосы.",
+      title: "Улицы (коридоры)",
+      hint: "Прямые коридоры с шагом около сотни блоков. Шаг и разброс ломают регулярность; процент сегментов оставляет обрывы и тупики.",
       items: [
-        { key: "web1Spacing", label: "Поле 1 · шаг", min: 80, max: 320, step: 10 },
-        { key: "web2Spacing", label: "Поле 2 · шаг", min: 80, max: 360, step: 10 },
-        { key: "web3Spacing", label: "Поле 3 · шаг", min: 60, max: 240, step: 5 },
-        { key: "web3WidthFactor", label: "Поле 3 · толщина", min: 0.2, max: 1, step: 0.05 },
-        { key: "widthSpacing", label: "Дыхание ширины · шаг", min: 24, max: 120, step: 4 },
-        { key: "widthBase", label: "База ширины", min: 0.02, max: 0.12, step: 0.002 },
-        { key: "widthBreathMin", label: "Ширина · минимум", min: 0.4, max: 2.5, step: 0.05 },
-        { key: "widthBreathRange", label: "Ширина · размах", min: 0, max: 2, step: 0.05 },
-        { key: "widthGrowMin", label: "Рост к краю · минимум", min: 0.2, max: 1.2, step: 0.05 },
-        { key: "widthGrowMax", label: "Рост к краю · максимум", min: 0.2, max: 1.6, step: 0.05 },
-        { key: "growDistance", label: "Дистанция роста", min: 20, max: 800, step: 10 }
+        { key: "pitch", label: "Шаг улиц", min: 64, max: 128, step: 4 },
+        { key: "jitter", label: "Разброс улиц", min: 0, max: 30, step: 2 },
+        { key: "streetWidthMax", label: "Макс. ширина коридора", min: 3, max: 9, step: 2 },
+        { key: "segmentChance", label: "Сегментов существует", min: 50, max: 95, step: 5, fmt: v => v + "%" }
+      ]
+    },
+    {
+      title: "Блоки и комнаты",
+      hint: "Между улицами — блоки. Часть застроена офисами, часть остаётся сплошной. Двери короткие, широкие проёмы объединяют комнаты.",
+      items: [
+        { key: "blockChance", label: "Застроено блоков", min: 50, max: 100, step: 5, fmt: v => v + "%" },
+        { key: "maxRooms", label: "Комнат в ряду (макс.)", min: 2, max: 4, step: 1 },
+        { key: "doorWidth", label: "Ширина двери", min: 2, max: 4, step: 1 },
+        { key: "wideOpening", label: "Широкий проём", min: 4, max: 8, step: 1 }
+      ]
+    },
+    {
+      title: "Офисный наполнитель",
+      hint: "Колонны в залах и короткие перегородки-кубиклы внутри комнат.",
+      items: [
+        { key: "columnSpacing", label: "Шаг колонн", min: 4, max: 10, step: 1 },
+        { key: "partitionChance", label: "Перегородки в комнате", min: 0, max: 100, step: 10, fmt: v => v + "%" }
       ]
     },
     {
       title: "Высоты",
-      hint: "Пол плавно ходит в полушагах в диапазоне 64..88. Шаг поля — за сколько блоков набегает один этаж.",
+      hint: "Пол плавно ходит в полушагах 64..88. Стены, двери и повороты при этом остаются прямыми.",
       items: [
         { key: "floorSpacing", label: "Высоты · шаг поля", min: 96, max: 384, step: 8 },
         { key: "floorLevels", label: "Высоты · этажей", min: 3, max: 9, step: 1 }
       ]
-    },
-    {
-      title: "Комнаты и двери",
-      hint: "Комната существует только рядом с паутиной и сидит на её высоте. Двери короткие: 1–4 штуки до ближайшего коридора, поэтому длинных прямых спиц больше нет.",
-      items: [
-        { key: "roomNearGate", label: "Порог у спавна", min: 0, max: 8, step: 1, fmt: gateFmt },
-        { key: "roomFarGate", label: "Порог вдали", min: 0, max: 8, step: 1, fmt: gateFmt },
-        { key: "roomNearRadius", label: "Радиус «у спавна»", min: 0, max: 640, step: 10 },
-        { key: "roomSizeMin", label: "Размер · минимум", min: 6, max: 20, step: 1 },
-        { key: "roomSizeRandom", label: "Размер · разброс", min: 1, max: 30, step: 1 },
-        { key: "rayCount", label: "Дверей на комнату", min: 1, max: 4, step: 1 },
-        { key: "rayMaxReach", label: "Макс. длина двери", min: 4, max: 24, step: 1 },
-        { key: "rayBlindOneIn", label: "Слепой тупик", min: 0, max: 8, step: 1, fmt: blindFmt },
-        { key: "rayBlindLen", label: "Длина слепого", min: 3, max: 12, step: 1 }
-      ]
     }
   ];
-
-  function gateFmt(v) { return v + "/8 · " + Math.round(v / 8 * 100) + "%"; }
-  function blindFmt(v) { return v === 0 ? "нет" : "1 из " + v; }
 
   function fmtVal(item, v) {
     if (item.fmt) return item.fmt(Number(v));
@@ -679,8 +672,8 @@
     statsEl.innerHTML = chips.join("");
 
     const problems = [];
-    if (s.sealedRooms > 0) problems.push("есть запертые комнаты: добавь дверей (rayCount) или увеличь их максимальную длину.");
-    if (s.reachPct !== null && s.reachPct < 90) problems.push("слишком много недостижимых карманов: проверь ширину коридоров и двери.");
+    if (s.sealedRooms > 0) problems.push("есть запертые комнаты: проверь сегменты улиц и застройку блоков.");
+    if (s.reachPct !== null && s.reachPct < 90) problems.push("слишком много недостижимых карманов: увеличь процент сегментов улиц.");
     if (!s.spawnInside) problems.push("точка входа вне кадра — статистика связности не считается. Вернись «К точке входа».");
     if (problems.length) {
       warnEl.textContent = problems.join(" ");
@@ -714,18 +707,17 @@
     const info = lastBuild.probe(wx, wz);
     if (!info) return;
     if (!info.carved) {
-      hoverEl.innerHTML = "x=" + wx + " z=" + wz + " · ячейка [" + info.cellX + ", " + info.cellZ + "] · <b>масса</b> (не вырезано)";
+      hoverEl.innerHTML = "x=" + wx + " z=" + wz + " · блок [" + info.i + ", " + info.j + "] · <b>масса</b> (не вырезано)";
       return;
     }
     let what = info.kind === 3 ? "комната" : info.kind === 2 ? "дверь" : "коридор";
-    let text = "x=" + wx + " z=" + wz + " · ячейка [" + info.cellX + ", " + info.cellZ + "] · <b>" +
+    let text = "x=" + wx + " z=" + wz + " · блок [" + info.i + ", " + info.j + "] · <b>" +
       what + "</b> · пол y=" + (info.floorY + 1).toFixed(1);
-    if (info.room) {
-      const rm = info.room;
-      const inRect = Math.abs(wx - rm.centerX) <= Math.floor(rm.size / 2) && Math.abs(wz - rm.centerZ) <= Math.floor(rm.size / 2);
-      if (inRect) {
-        text += " · <b>" + Core.roomTypeName(rm.type) + "</b> · размер " + rm.size + " · комнатный пол y=" + rm.floorY;
-      }
+    if (info.block) {
+      const layout = Core.LAYOUT_NAMES[info.block.layout] || info.block.layout;
+      text += " · " + layout;
+      const room = info.block.rooms.find(r => wx >= r.x0 && wx <= r.x1 && wz >= r.z0 && wz <= r.z1);
+      if (room) text += " · " + room.name;
     }
     if (info.reachable === false) text += " · <b style='color:#e06060'>недостижимо от спавна</b>";
     hoverEl.innerHTML = text;
@@ -809,7 +801,7 @@
 
   $("reset").addEventListener("click", () => {
     state.config = Object.assign({}, DEFAULTS);
-    state.view = { span: 768, cx: 0, cz: 0 };
+    state.view = { span: 1024, cx: 0, cz: 0 };
     refreshControls();
     syncViewInputs();
     saveState();

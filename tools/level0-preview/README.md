@@ -38,14 +38,14 @@ xdg-open tools/level0-preview/index.html
 
 ## Точность модели
 
-`core.js` — порт `Level0Plan.java`: тот же 64-битный хеш, тот же value noise,
-те же соли и те же формулы. `DEFAULT_CONFIG` совпадает с константами игры.
+`core.js` — порт `Level0Plan.java`: тот же 64-битный хеш, те же соли и те же
+формулы. `DEFAULT_CONFIG` совпадает с константами игры.
 
-Превью показывает план сверху: интерьеры 45 вариантов комнат (колонны, ямы,
-мезонины и т.п.) не рисуются, но факт комнаты, её размер, тип, плоский пол и
-короткие двери учитываются. Комната существует только рядом с паутиной:
-длинных прямых коридоров-спиц больше нет, только 1-4 двери до ближайшего
-коридора (не дальше `rayMaxReach`).
+Превью показывает план сверху. Геометрия — офисная: нерегулярная сетка
+прямых улиц-коридоров, между ними блоки. Блок застраивается одним из четырёх
+типов: открытый зал с колоннами, кабинеты вокруг внутреннего коридора, сьют
+с подсобкой или две комнаты с широким проёмом. В кабинетах есть короткие
+перегородки. Длинных диагональных лучей и шумовых «пещер» больше нет.
 
 Проверка связности повторяет правила игры: подъём не больше 0.5 блока за шаг,
 спуск — любой. Статистика считается по внутреннему окну с отступом 48 блоков
@@ -53,31 +53,20 @@ xdg-open tools/level0-preview/index.html
 
 ## Соответствие JSON → Level0Plan.java
 
-| JSON                | Java                     |
-|---------------------|--------------------------|
-| `seed`              | `maze_seed` в dimension JSON и `new Level0Plan(...)` в командах |
-| `web1Spacing`       | `WEB1_SPACING`           |
-| `web2Spacing`       | `WEB2_SPACING`           |
-| `web3Spacing`       | `WEB3_SPACING`           |
-| `web3WidthFactor`   | `WEB3_WIDTH_FACTOR`      |
-| `widthSpacing`      | `WIDTH_SPACING`          |
-| `widthBase`         | `WIDTH_BASE`             |
-| `widthBreathMin`    | `WIDTH_BREATH_MIN`       |
-| `widthBreathRange`  | `WIDTH_BREATH_RANGE`     |
-| `widthGrowMin`      | `WIDTH_GROW_MIN`         |
-| `widthGrowMax`      | `WIDTH_GROW_MAX`         |
-| `growDistance`      | `GROW_DISTANCE`          |
-| `floorSpacing`      | `FLOOR_SPACING`          |
-| `floorLevels`       | `FLOOR_LEVELS`           |
-| `roomNearGate`      | `ROOM_NEAR_GATE`         |
-| `roomFarGate`       | `ROOM_FAR_GATE`          |
-| `roomNearRadius`    | `ROOM_NEAR_RADIUS`       |
-| `roomSizeMin`       | `ROOM_SIZE_MIN`          |
-| `roomSizeRandom`    | `ROOM_SIZE_RANDOM`       |
-| `rayCount`          | `RAY_COUNT` (дверей)     |
-| `rayMaxReach`       | `RAY_MAX_REACH` (длина двери) |
-| `rayBlindOneIn`     | `RAY_BLIND_ONE_IN`       |
-| `rayBlindLen`       | `RAY_BLIND_LEN`          |
+| JSON              | Java                |
+|-------------------|---------------------|
+| `seed`            | `maze_seed` + `new Level0Plan(...)` |
+| `pitch`           | `PITCH`             |
+| `jitter`          | `JITTER`            |
+| `streetWidthMax`  | `STREET_WIDTH_MAX`  |
+| `segmentChance`   | `SEGMENT_CHANCE`    |
+| `blockChance`     | `BLOCK_CHANCE`      |
+| `maxRooms`        | `MAX_ROOMS`         |
+| `doorWidth`       | `DOOR_WIDTH`        |
+| `wideOpening`     | `WIDE_OPENING`      |
+| `columnSpacing`   | `COLUMN_SPACING`    |
+| `partitionChance` | `PARTITION_CHANCE`  |
+| `floorSpacing`    | `FLOOR_SPACING`     |
+| `floorLevels`     | `FLOOR_LEVELS`      |
 
-Служебные ключи `_view`, `_stats`, `_generatedAt` нужны только для удобства и
-при внедрении игнорируются.
+Служебные ключи `_view`, `_stats`, `_generatedAt` при внедрении игнорируются.

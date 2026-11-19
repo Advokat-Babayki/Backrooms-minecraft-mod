@@ -1,7 +1,6 @@
 package com.advokatbabayki.backrooms;
 
 import java.util.List;
-import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 
 import com.mojang.serialization.MapCodec;
@@ -27,17 +26,13 @@ import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.blending.Blender;
 
 /**
- * Level 0: a solid wallpaper mass carved into an organically growing space
- * (see Level0Plan).
+ * Level 0: a solid wallpaper mass carved into an axis-aligned office plan
+ * (see Level0Plan). Streets, rooms, doorways, columns and partial partitions
+ * are all cut out of the same monolith, so walls and ceilings merge by
+ * construction and the player can never reach the roof.
  *
- * Every column is filled solid from y60 to y105; the corridor web, the room
- * islands and their hallway rays are carved out of that mass, so walls and
- * ceilings merge into each other by construction - there is no path to the
- * outside of the level, and above the mass the world is flat empty air.
- *
- * Floors move in half-block steps: even half-units are a full carpet block,
- * odd ones add a bottom slab on top, which makes every slope walkable
- * without jumping and gives the level its gently rising and falling rooms.
+ * Floors use the continuous half-block field: every slope is walkable without
+ * jumping.
  */
 public class Level0Generator extends ChunkGenerator {
     public static final MapCodec<Level0Generator> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
@@ -45,7 +40,6 @@ public class Level0Generator extends ChunkGenerator {
             net.minecraft.util.ExtraCodecs.NON_NEGATIVE_INT.optionalFieldOf("maze_seed", 0).forGetter(g -> 0)
     ).apply(instance, Level0Generator::new));
 
-    /** Solid mass bounds; all carving happens strictly inside them. */
     private static final int FILL_MIN_Y = 60;
     private static final int FILL_TOP_Y = 105;
     private static final int LIGHT_EVERY = 6;
@@ -75,13 +69,12 @@ public class Level0Generator extends ChunkGenerator {
         BlockState light = BackroomsBlocks.FLUORESCENT_PANEL.get().defaultBlockState();
         BlockState air = Blocks.AIR.defaultBlockState();
         BlockState slabBottom = BackroomsBlocks.WALLPAPER_SLAB.get().defaultBlockState();
-        BlockState slabTop = slabBottom.setValue(SlabBlock.TYPE, SlabType.TOP);
 
         ChunkPos pos = chunk.getPos();
         int baseX = pos.getMinBlockX();
         int baseZ = pos.getMinBlockZ();
 
-        // ---- Pass 1: solid mass everywhere ----
+        // ---- solid mass ----
         for (int lx = 0; lx < 16; lx++) {
             for (int lz = 0; lz < 16; lz++) {
                 for (int y = FILL_MIN_Y; y <= FILL_TOP_Y; y++) {
@@ -90,38 +83,83 @@ public class Level0Generator extends ChunkGenerator {
             }
         }
 
-        // ---- Pass 2: carve the corridor web column by column ----
-        // The chunk is a plain array of states: a carved column is one whose
-        // block at the local floor line is carpet or slab. To honor "crossing
-        // hallways merge, never step-walls", track carved floor heights in a
-        // small map per chunk invocation.
-        java.util.Map<Long, Integer> carvedFloors = new java.util.HashMap<>();
-        Level0Plan.Room ownRoom = plan.room(Level0Plan.cellOf(baseX), Level0Plan.cellOf(baseZ));
-        for (int lx = 0; lx < 16; lx++) {
-            for (int lz = 0; lz < 16; lz++) {
-                int x = baseX + lx, z = baseZ + lz;
-                // The room and its wall ring are solid: the web stops at the
-                // room instead of leaking in at a random floor height. Doors
-                // are carved later through this ring.
-                if (plan.inWeb(x, z) && !insideRoomMargin(ownRoom, x, z)) {
-                    carveMerged(chunk, x, z, plan.floorHalf(x, z), baseX, baseZ, carvedFloors,
-                            carpet, ceilingTile, light, air, slabBottom);
+        int[] xs = plan.streetRange(baseX, baseX + 15);
+        int[] zs = plan.streetRange(baseZ, baseZ + 15);
+
+        // ---- streets ----
+        for (int i = xs[0]; i <= xs[1]; i++) {
+            int sx = plan.streetX(i);
+            int half = plan.streetHalf(i);
+            for (int j = zs[0]; j <= zs[1]; j++) {
+                if (!plan.segV(i, j)) continue;
+                int za = Math.max(plan.streetZ(j), baseZ);
+                int zb = Math.min(plan.streetZ(j + 1), baseZ + 15);
+                for (int x = sx - half; x <= sx + half; x++) {
+                    for (int z = za; z <= zb; z++) {
+                        if (x < baseX || x > baseX + 15) continue;
+                        carveColumn(chunk, x, z, carpet, ceilingTile, light, air, slabBottom);
+                    }
+                }
+            }
+        }
+        for (int j = zs[0]; j <= zs[1]; j++) {
+            int sz = plan.streetZ(j);
+            int half = plan.streetHalf(j);
+            for (int i = xs[0]; i <= xs[1]; i++) {
+                if (!plan.segH(i, j)) continue;
+                int xa = Math.max(plan.streetX(i), baseX);
+                int xb = Math.min(plan.streetX(i + 1), baseX + 15);
+                for (int z = sz - half; z <= sz + half; z++) {
+                    for (int x = xa; x <= xb; x++) {
+                        if (z < baseZ || z > baseZ + 15) continue;
+                        carveColumn(chunk, x, z, carpet, ceilingTile, light, air, slabBottom);
+                    }
                 }
             }
         }
 
-        // ---- Pass 3: rooms near this chunk and their short doorways ----
-        for (int dcx = -2; dcx <= 2; dcx++) {
-            for (int dcz = -2; dcz <= 2; dcz++) {
-                Level0Plan.Room room = plan.room(Level0Plan.cellOf(baseX) + dcx,
-                        Level0Plan.cellOf(baseZ) + dcz);
-                if (room == null) continue;
-                if (!affectsChunk(room, pos)) continue;
-                carveDoors(chunk, pos, room, carvedFloors,
-                        carpet, ceilingTile, light, air, slabBottom);
-                if (overlapsChunk(room, pos)) {
-                    carveRoom(chunk, pos, plan, room, carpet, wallpaper, ceilingTile,
-                            light, air, slabBottom, slabTop);
+        // ---- blocks: rooms, columns, doorways ----
+        for (int i = xs[0]; i <= xs[1]; i++) {
+            for (int j = zs[0]; j <= zs[1]; j++) {
+                Level0Plan.Block block = plan.block(i, j);
+                if (block == null) continue;
+                if (block.x1() < baseX || block.x0() > baseX + 15
+                        || block.z1() < baseZ || block.z0() > baseZ + 15) continue;
+
+                for (Level0Plan.Room room : block.rooms()) {
+                    int x0 = Math.max(room.x0(), baseX);
+                    int x1 = Math.min(room.x1(), baseX + 15);
+                    int z0 = Math.max(room.z0(), baseZ);
+                    int z1 = Math.min(room.z1(), baseZ + 15);
+                    for (int x = x0; x <= x1; x++) {
+                        for (int z = z0; z <= z1; z++) {
+                            carveColumn(chunk, x, z, carpet, ceilingTile, light, air, slabBottom);
+                        }
+                    }
+                }
+
+                for (Level0Plan.Solid solid : block.solids()) {
+                    int x0 = Math.max(solid.x0(), baseX);
+                    int x1 = Math.min(solid.x1(), baseX + 15);
+                    int z0 = Math.max(solid.z0(), baseZ);
+                    int z1 = Math.min(solid.z1(), baseZ + 15);
+                    for (int x = x0; x <= x1; x++) {
+                        for (int z = z0; z <= z1; z++) {
+                            fillSolid(chunk, x, z, wallpaper);
+                        }
+                    }
+                }
+
+                for (Level0Plan.Door door : block.doors()) {
+                    int x0 = Math.max(door.x0(), baseX);
+                    int x1 = Math.min(door.x1(), baseX + 15);
+                    int z0 = Math.max(door.z0(), baseZ);
+                    int z1 = Math.min(door.z1(), baseZ + 15);
+                    for (int x = x0; x <= x1; x++) {
+                        for (int z = z0; z <= z1; z++) {
+                            carveColumn(chunk, x, z, carpet, ceilingTile, light, air, slabBottom);
+                        }
+                    }
                 }
             }
         }
@@ -129,52 +167,13 @@ public class Level0Generator extends ChunkGenerator {
         return CompletableFuture.completedFuture(chunk);
     }
 
-    private static boolean insideRoomMargin(Level0Plan.Room room, int x, int z) {
-        return room != null
-                && x >= Level0Plan.roomMinX(room) - 1 && x <= Level0Plan.roomMaxX(room) + 1
-                && z >= Level0Plan.roomMinZ(room) - 1 && z <= Level0Plan.roomMaxZ(room) + 1;
-    }
-
-    /** True when this room or one of its doors can reach any column of the chunk. */
-    private static boolean affectsChunk(Level0Plan.Room room, ChunkPos pos) {
-        int reach = room.size() / 2 + Level0Plan.RAY_MAX_REACH + 1;
-        return pos.getMinBlockX() <= room.centerX() + reach && pos.getMaxBlockX() >= room.centerX() - reach
-                && pos.getMinBlockZ() <= room.centerZ() + reach && pos.getMaxBlockZ() >= room.centerZ() - reach;
-    }
-
-    private static boolean overlapsChunk(Level0Plan.Room room, ChunkPos pos) {
-        return pos.getMinBlockX() <= Level0Plan.roomMaxX(room) && pos.getMaxBlockX() >= Level0Plan.roomMinX(room)
-                && pos.getMinBlockZ() <= Level0Plan.roomMaxZ(room) && pos.getMaxBlockZ() >= Level0Plan.roomMinZ(room);
-    }
-
-    /**
-     * Carves a hallway column, clamping its floor to half a block of any
-     * floor already carved here: crossing hallways merge into a smooth
-     * step instead of building a wall, exactly like the verified simulation.
-     */
-    private void carveMerged(ChunkAccess chunk, int x, int z, int s, int baseX, int baseZ,
-            java.util.Map<Long, Integer> carvedFloors,
+    /** One carved column at the continuous floor height. */
+    private void carveColumn(ChunkAccess chunk, int x, int z,
             BlockState carpet, BlockState ceilingTile, BlockState light, BlockState air,
             BlockState slabBottom) {
-        Long key = (long) x << 32 | (z & 0xFFFFFFFFL);
-        Integer prev = carvedFloors.get(key);
-        if (prev != null) {
-            if (s > prev + 1) s = prev + 1;       // half-units: keep within 0.5 blocks
-            else if (s < prev - 1) s = prev - 1;
-        }
-        carvedFloors.put(key, s);
-        carveOpenColumn(chunk, x, z, s, baseX, baseZ, carpet, ceilingTile, light, air, slabBottom);
-    }
-
-    /**
-     * One open column at a half-block floor height: even half-units are a
-     * single carpet block, odd ones stack a bottom slab on top of the block.
-     * y0 is the block carrying the carpet, so the walkable surface is
-     * y0 + 1 (even s) or y0 + 1.5 (odd s) - adjacent half-steps stay 0.5.
-     */
-    private void carveOpenColumn(ChunkAccess chunk, int x, int z, int s, int baseX, int baseZ,
-            BlockState carpet, BlockState ceilingTile, BlockState light, BlockState air,
-            BlockState slabBottom) {
+        if (x < chunk.getPos().getMinBlockX() || x > chunk.getPos().getMaxBlockX()
+                || z < chunk.getPos().getMinBlockZ() || z > chunk.getPos().getMaxBlockZ()) return;
+        int s = plan.floorHalf(x, z);
         boolean half = (s & 1) != 0;
         int y0 = half ? (s - 1) / 2 : s / 2;
         int ceilY = y0 + (half ? 5 : 4);
@@ -184,217 +183,25 @@ public class Level0Generator extends ChunkGenerator {
         }
         chunk.setBlockState(new BlockPos(x, y0, z), carpet, false);
         if (half) {
-            chunk.setBlockState(new BlockPos(x, y0 + 1, z), slabBottom, false);
+            chunk.setBlockState(new BlockPos(x, y0 + 1, z),
+                    slabBottom.setValue(SlabBlock.TYPE, SlabType.BOTTOM), false);
         }
-        setCeiling(chunk, x, z, ceilY, baseX, baseZ, ceilingTile, light);
+        BlockState ceilingState = Math.floorMod(x, LIGHT_EVERY) == 3
+                && Math.floorMod(z, LIGHT_EVERY) == 3 ? light : ceilingTile;
+        chunk.setBlockState(new BlockPos(x, ceilY, z), ceilingState, false);
     }
 
-    private void setCeiling(ChunkAccess chunk, int x, int z, int y, int baseX, int baseZ,
-            BlockState ceilingTile, BlockState light) {
-        BlockState state = (x - baseX) % LIGHT_EVERY == 3 && (z - baseZ) % LIGHT_EVERY == 3
-                ? light : ceilingTile;
-        chunk.setBlockState(new BlockPos(x, y, z), state, false);
-    }
-
-    // ---- Doorways ----
-
-    /**
-     * Carves a room's short doorways: two blocks wide, straight out of the
-     * room side, from the wall ring to the nearest web column. The floor is
-     * flat at the room height, and the street door is found such that the web
-     * floor there differs by at most half a block, so the junction is a step,
-     * not a wall. Blind doors stop in the mass and leave a dead end.
-     */
-    private void carveDoors(ChunkAccess chunk, ChunkPos pos, Level0Plan.Room room,
-            java.util.Map<Long, Integer> carvedFloors,
-            BlockState carpet, BlockState ceilingTile, BlockState light, BlockState air,
-            BlockState slabBottom) {
-        int roomH = room.floorY() * 2; // half-units
-        int half = room.size() / 2;
-        int x0 = room.centerX(), z0 = room.centerZ();
-        for (Level0Plan.Door door : room.doors()) {
-            for (int o = 1; o <= door.len(); o++) {
-                if (door.dx() != 0) {
-                    int x = (door.dx() > 0 ? x0 + half : x0 - half) + door.dx() * o;
-                    carveDoorColumn(chunk, pos, x, z0, roomH, carvedFloors,
-                            carpet, ceilingTile, light, air, slabBottom);
-                    carveDoorColumn(chunk, pos, x, z0 + 1, roomH, carvedFloors,
-                            carpet, ceilingTile, light, air, slabBottom);
-                } else {
-                    int z = (door.dz() > 0 ? z0 + half : z0 - half) + door.dz() * o;
-                    carveDoorColumn(chunk, pos, x0, z, roomH, carvedFloors,
-                            carpet, ceilingTile, light, air, slabBottom);
-                    carveDoorColumn(chunk, pos, x0 + 1, z, roomH, carvedFloors,
-                            carpet, ceilingTile, light, air, slabBottom);
-                }
-            }
+    /** A column or a partial partition: solid wallpaper from floor to ceiling. */
+    private void fillSolid(ChunkAccess chunk, int x, int z, BlockState wallpaper) {
+        if (x < chunk.getPos().getMinBlockX() || x > chunk.getPos().getMaxBlockX()
+                || z < chunk.getPos().getMinBlockZ() || z > chunk.getPos().getMaxBlockZ()) return;
+        int s = plan.floorHalf(x, z);
+        boolean half = (s & 1) != 0;
+        int y0 = half ? (s - 1) / 2 : s / 2;
+        int ceilY = y0 + (half ? 5 : 4);
+        for (int y = y0; y <= ceilY; y++) {
+            chunk.setBlockState(new BlockPos(x, y, z), wallpaper, false);
         }
-    }
-
-    private void carveDoorColumn(ChunkAccess chunk, ChunkPos pos, int x, int z, int s,
-            java.util.Map<Long, Integer> carvedFloors,
-            BlockState carpet, BlockState ceilingTile, BlockState light, BlockState air,
-            BlockState slabBottom) {
-        if (x < pos.getMinBlockX() || x > pos.getMaxBlockX()
-                || z < pos.getMinBlockZ() || z > pos.getMaxBlockZ()) return;
-        carveMerged(chunk, x, z, s, pos.getMinBlockX(), pos.getMinBlockZ(), carvedFloors,
-                carpet, ceilingTile, light, air, slabBottom);
-    }
-
-    // ---- Rooms ----
-
-    private void carveRoom(ChunkAccess chunk, ChunkPos pos, Level0Plan plan, Level0Plan.Room room,
-            BlockState carpet, BlockState wallpaper, BlockState ceilingTile, BlockState light,
-            BlockState air, BlockState slabBottom, BlockState slabTop) {
-        int h = room.floorY();
-        int type = plan.roomType(room.cx(), room.cz());
-        boolean tall = type == Level0Plan.ROOM_PILLARS || type == Level0Plan.ROOM_MEZZANINE
-                || type == Level0Plan.ROOM_TALL;
-        int ceil = tall ? h + 16 : h + 4;
-
-        int rMinX = Math.max(pos.getMinBlockX(), Level0Plan.roomMinX(room));
-        int rMaxX = Math.min(pos.getMaxBlockX(), Level0Plan.roomMaxX(room));
-        int rMinZ = Math.max(pos.getMinBlockZ(), Level0Plan.roomMinZ(room));
-        int rMaxZ = Math.min(pos.getMaxBlockZ(), Level0Plan.roomMaxZ(room));
-        if (rMinX > rMaxX || rMinZ > rMaxZ) return;
-
-        // Floor and open volume
-        for (int x = rMinX; x <= rMaxX; x++) {
-            for (int z = rMinZ; z <= rMaxZ; z++) {
-                chunk.setBlockState(new BlockPos(x, h, z), carpet, false);
-                for (int y = h + 1; y <= ceil - 1; y++) {
-                    chunk.setBlockState(new BlockPos(x, y, z), air, false);
-                }
-            }
-        }
-
-        // Interior features
-        switch (type) {
-            case Level0Plan.ROOM_PILLARS -> carvePillars(chunk, room, pos, rMinX, rMaxX, rMinZ, rMaxZ, h);
-            case Level0Plan.ROOM_MEZZANINE -> carveMezzanine(chunk, room, pos, rMinX, rMaxX, rMinZ, rMaxZ, h,
-                    carpet, slabBottom);
-            case Level0Plan.ROOM_HOLES -> carveHoles(chunk, room, pos, rMinX, rMaxX, rMinZ, rMaxZ, h,
-                    air, slabBottom, slabTop);
-            default -> {
-                if (type >= 6) {
-                    RoomVariants.carve(chunk, pos, plan, room, type, carpet, wallpaper, ceilingTile,
-                            light, air, slabBottom, slabTop);
-                }
-                // base plain, blackout and tall halls stay empty
-            }
-        }
-
-        // Ceiling with lights (blackout rooms stay dark)
-        for (int x = rMinX; x <= rMaxX; x++) {
-            for (int z = rMinZ; z <= rMaxZ; z++) {
-                BlockState state = type != Level0Plan.ROOM_BLACKOUT
-                        && (x - pos.getMinBlockX()) % LIGHT_EVERY == 3 && (z - pos.getMinBlockZ()) % LIGHT_EVERY == 3
-                        ? light : ceilingTile;
-                chunk.setBlockState(new BlockPos(x, ceil, z), state, false);
-            }
-        }
-    }
-
-    /**
-     * Pillar forest. Pillars never stand on the room center (the entry
-     * point); the hallway mouths at the walls stay open either way.
-     */
-    private void carvePillars(ChunkAccess chunk, Level0Plan.Room room,
-            ChunkPos pos, int rMinX, int rMaxX, int rMinZ, int rMaxZ, int h) {
-        BlockState wallpaper = BackroomsBlocks.YELLOW_WALLPAPER.get().defaultBlockState();
-        for (int x = rMinX + 2; x <= rMaxX - 2; x += 3) {
-            for (int z = rMinZ + 2; z <= rMaxZ - 2; z += 3) {
-                if (x < pos.getMinBlockX() || x > pos.getMaxBlockX()
-                        || z < pos.getMinBlockZ() || z > pos.getMaxBlockZ()) continue;
-                boolean atCenter = Math.abs(x - room.centerX()) <= 2 && Math.abs(z - room.centerZ()) <= 2;
-                if (atCenter) continue;
-                for (int y = h + 1; y <= h + 15; y++) {
-                    chunk.setBlockState(new BlockPos(x, y, z), wallpaper, false);
-                }
-            }
-        }
-    }
-
-    /**
-     * Mezzanine: a raised deck filling one hashed corner of the room, with a
-     * slab staircase hugging the two walls of that corner. The deck leaves a
-     * 3-high passage underneath and 11 blocks of headroom on top.
-     */
-    private void carveMezzanine(ChunkAccess chunk, Level0Plan.Room room,
-            ChunkPos pos, int rMinX, int rMaxX, int rMinZ, int rMaxZ, int h,
-            BlockState carpet, BlockState slabBottom) {
-        int half = room.size() / 2;
-        long hr = hashRoom(room.cx(), room.cz(), 42L);
-        int sx = Math.floorMod(hr, 2) == 0 ? -1 : 1;
-        int sz = Math.floorMod(hr >>> 16, 2) == 0 ? -1 : 1;
-
-        // Deck: corner block layer at h+4
-        int dX1 = Math.min(room.centerX() + sx * 3, room.centerX() + sx * (half - 2));
-        int dX2 = Math.max(room.centerX() + sx * 3, room.centerX() + sx * (half - 2));
-        int dZ1 = Math.min(room.centerZ() + sz * 3, room.centerZ() + sz * (half - 2));
-        int dZ2 = Math.max(room.centerZ() + sz * 3, room.centerZ() + sz * (half - 2));
-        for (int x = Math.max(dX1, pos.getMinBlockX()); x <= Math.min(dX2, pos.getMaxBlockX()); x++) {
-            for (int z = Math.max(dZ1, pos.getMinBlockZ()); z <= Math.min(dZ2, pos.getMaxBlockZ()); z++) {
-                chunk.setBlockState(new BlockPos(x, h + 4, z), carpet, false);
-            }
-        }
-
-        // Staircase: 8 steps rising h+1 -> h+5, run along the sx wall, band at the sz wall
-        int xLow = sx < 0 ? Level0Plan.roomMinX(room) : Level0Plan.roomMaxX(room) - 7;
-        int zLow = sz < 0 ? Level0Plan.roomMinZ(room) : Level0Plan.roomMaxZ(room) - 2;
-        for (int i = 0; i < 8; i++) {
-            int x = sx < 0 ? xLow + i : xLow + (7 - i);
-            int p = i + 1;
-            for (int z = zLow; z < zLow + 3; z++) {
-                if (x < pos.getMinBlockX() || x > pos.getMaxBlockX()
-                        || z < pos.getMinBlockZ() || z > pos.getMaxBlockZ()) continue;
-                chunk.setBlockState(new BlockPos(x, h, z), carpet, false);
-                int space = h + (p + 1) / 2;
-                BlockState step = (p % 2 == 1) ? slabBottom : carpet;
-                chunk.setBlockState(new BlockPos(x, space, z), step, false);
-            }
-        }
-    }
-
-    /**
-     * Torn floor: irregular shallow pits (depth 3), never under the room's
-     * entry crossing. Each pit gets an escape half-step column in its
-     * corner, so a player who falls in can always climb out.
-     */
-    private void carveHoles(ChunkAccess chunk, Level0Plan.Room room,
-            ChunkPos pos, int rMinX, int rMaxX, int rMinZ, int rMaxZ, int h,
-            BlockState air, BlockState slabBottom, BlockState slabTop) {
-        Random rand = new Random(hashRoom(room.cx(), room.cz(), 777L));
-        int gapCount = 2 + rand.nextInt(5); // 2..6
-        for (int g = 0; g < gapCount; g++) {
-            int w = 3 + rand.nextInt(5); // 3..7
-            int d = 3 + rand.nextInt(3); // 3..5
-            int gx = rMinX + 2 + rand.nextInt(Math.max(1, rMaxX - rMinX - 3 - w));
-            int gz = rMinZ + 2 + rand.nextInt(Math.max(1, rMaxZ - rMinZ - 3 - d));
-            if (gx <= room.centerX() + 3 && gx + w - 1 >= room.centerX() - 3
-                    && gz <= room.centerZ() + 3 && gz + d - 1 >= room.centerZ() - 3) continue;
-            for (int x = Math.max(gx, pos.getMinBlockX()); x <= Math.min(gx + w - 1, pos.getMaxBlockX()) && x <= rMaxX; x++) {
-                for (int z = Math.max(gz, pos.getMinBlockZ()); z <= Math.min(gz + d - 1, pos.getMaxBlockZ()) && z <= rMaxZ; z++) {
-                    for (int y = h; y >= h - 2; y--) {
-                        chunk.setBlockState(new BlockPos(x, y, z), air, false);
-                    }
-                }
-            }
-            // Escape column in the pit's corner: +0.5, +0.5, then one jump to the floor
-            if (gx >= pos.getMinBlockX() && gx <= pos.getMaxBlockX()
-                    && gz >= pos.getMinBlockZ() && gz <= pos.getMaxBlockZ()) {
-                chunk.setBlockState(new BlockPos(gx, h - 2, gz), slabBottom, false);
-                chunk.setBlockState(new BlockPos(gx, h - 1, gz), slabTop, false);
-            }
-        }
-    }
-
-    private static long hashRoom(int cx, int cz, long salt) {
-        long h = (cx * 0x9E3779B97F4A7C15L) ^ (cz * 0xBF58476D1CE4E5B9L) ^ (salt * 0x94D049BB133111EBL);
-        h ^= h >>> 29;
-        h *= 0x165667B19E3779F9L;
-        h ^= h >>> 32;
-        return h;
     }
 
     @Override
@@ -412,12 +219,9 @@ public class Level0Generator extends ChunkGenerator {
         return 0;
     }
 
-    /**
-     * Honest walk height for a position: the floor field itself. Used by
-     * the dimension spawn search, so it matches the carved space.
-     */
     @Override
-    public int getBaseHeight(int x, int z, Heightmap.Types type, LevelHeightAccessor level, RandomState random) {
+    public int getBaseHeight(int x, int z, Heightmap.Types type, LevelHeightAccessor level,
+            RandomState random) {
         return plan.floorSurface(x, z) + 1;
     }
 
@@ -432,7 +236,8 @@ public class Level0Generator extends ChunkGenerator {
     }
 
     @Override
-    public void buildSurface(WorldGenRegion level, StructureManager structureManager, RandomState random, ChunkAccess chunk) {
+    public void buildSurface(WorldGenRegion level, StructureManager structureManager, RandomState random,
+            ChunkAccess chunk) {
     }
 
     @Override

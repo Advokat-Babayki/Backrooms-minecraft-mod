@@ -50,53 +50,53 @@ public final class BackroomsCommands {
             return 0;
         }
         RETURN_POINTS.put(player.getUUID(), new ReturnPoint(player.level().dimension(), player.getX(), player.getY(), player.getZ()));
-        // Same maze_seed the dimension JSON uses. The entry room is a forced
-        // room island pinned to the local web height: the landing spot is
-        // always open carved floor.
+        // Same maze_seed the dimension JSON uses. The entry point is the center
+        // of the forced spawn block's first room.
         Level0Plan plan = new Level0Plan(0L);
-        Level0Plan.Room entry = plan.room(0, 0);
-        int floorY = entry != null ? entry.floorY() : plan.floorSurface(24, 24);
-        player.teleportTo(level0, (entry != null ? entry.centerX() : 24) + 0.5, floorY + 1.0,
-                (entry != null ? entry.centerZ() : 24) + 0.5, player.getYRot(), player.getXRot());
+        int[] spawn = plan.spawnPoint();
+        player.teleportTo(level0, spawn[0] + 0.5, spawn[2] + 1.0, spawn[1] + 0.5,
+                player.getYRot(), player.getXRot());
         source.sendSuccess(() -> Component.literal("You noclipped into the Backrooms. Mind the hum."), false);
         return Command.SINGLE_SUCCESS;
     }
 
     /**
-     * Dev helper: report which room (type, cell, size, center, floor) the
-     * player stands in, so generation feedback can name the exact room.
+     * Dev helper: report which office block and room the player stands in, so
+     * generation feedback can name the exact place.
      */
     private static int whereRoom(CommandSourceStack source) throws CommandSyntaxException {
         ServerPlayer player = source.getPlayerOrException();
         Level0Plan plan = new Level0Plan(0L);
         int bx = Mth.floor(player.getX());
         int bz = Mth.floor(player.getZ());
-        int cx = Math.floorDiv(bx, Level0Plan.CELL_BLOCKS);
-        int cz = Math.floorDiv(bz, Level0Plan.CELL_BLOCKS);
-        Level0Plan.Room room = plan.room(cx, cz);
-        if (room == null) {
+        int[] cell = plan.blockOf(bx, bz);
+        Level0Plan.Block block = plan.block(cell[0], cell[1]);
+        if (block == null) {
             int floor = plan.floorSurface(bx, bz);
             source.sendSuccess(() -> Component.literal(String.format(
-                    "Ты в паутине коридоров, ячейка [%d, %d], пол y=%d. Комнаты в этой ячейке нет.",
-                    cx, cz, floor)), false);
+                    "Ты в коридоре или сплошной массе, блок [%d, %d], пол y=%d.",
+                    cell[0], cell[1], floor)), false);
             return Command.SINGLE_SUCCESS;
         }
-        boolean inside = bx >= Level0Plan.roomMinX(room) && bx <= Level0Plan.roomMaxX(room)
-                && bz >= Level0Plan.roomMinZ(room) && bz <= Level0Plan.roomMaxZ(room);
-        int type = plan.roomType(cx, cz);
-        String typeName = switch (type) {
-            case Level0Plan.ROOM_PILLARS -> "PILLARS (колонны)";
-            case Level0Plan.ROOM_MEZZANINE -> "MEZZANINE (мезонин)";
-            case Level0Plan.ROOM_HOLES -> "HOLES (проломы в полу)";
-            case Level0Plan.ROOM_BLACKOUT -> "BLACKOUT (тёмная)";
-            case Level0Plan.ROOM_TALL -> "TALL (огромный ангар)";
-            default -> Level0Plan.roomTypeName(type) + " (вариант " + type + ")";
+        String roomName = null;
+        for (Level0Plan.Room room : block.rooms()) {
+            if (bx >= room.x0() && bx <= room.x1() && bz >= room.z0() && bz <= room.z1()) {
+                roomName = room.name();
+                break;
+            }
+        }
+        String layout = switch (block.layout()) {
+            case "hall" -> "OPEN HALL (открытый зал)";
+            case "offices" -> "OFFICES (кабинеты)";
+            case "suite" -> "SUITE (сьют)";
+            default -> "MERGED ROOMS (объединённые комнаты)";
         };
-        String place = inside ? "Ты в комнате" : "Ты в коридоре; комната ячейки";
+        String place = roomName != null ? roomName : "коридор";
+        String finalRoom = place;
+        int floor = plan.floorSurface(bx, bz);
         source.sendSuccess(() -> Component.literal(String.format(
-                "%s [%d, %d]: %s · размер %d · центр x=%d z=%d · пол y=%d",
-                place, cx, cz, typeName, room.size(), room.centerX(), room.centerZ(),
-                room.floorY())), false);
+                "Блок [%d, %d]: %s · %s · пол y=%d",
+                cell[0], cell[1], layout, finalRoom, floor)), false);
         return Command.SINGLE_SUCCESS;
     }
 

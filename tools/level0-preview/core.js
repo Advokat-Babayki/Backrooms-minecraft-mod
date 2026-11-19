@@ -1,6 +1,8 @@
 /*
- * Level 0 preview core: a JS port of Level0Plan.java (seed 0 semantics).
- * Keep DEFAULT_CONFIG in sync with the tunables in Level0Plan.java.
+ * Level 0 preview core: an axis-aligned office floor plan.
+ * Street grid with irregular pitch = long straight corridors and 90-degree
+ * turns; blocks between streets are cut into offices, halls, suites and
+ * merged rooms. Keep DEFAULT_CONFIG in sync with Level0Plan.java.
  * Works in the browser (window.Level0Core) and in node (module.exports).
  */
 (function (root, factory) {
@@ -17,64 +19,48 @@
   const K4 = 0x165667B19E3779F9n;
   const K5 = 0x27D4EB2F165667C5n;
 
-  const SALT_WEB1 = 0x5DEECE66Dn;
-  const SALT_WEB2 = 0x1D2545F4914F6CDDn;
-  const SALT_WEB3 = 0x2545F4914F6CDDn;
-  const SALT_WIDTH = 0x6CDD1D2545F4914Dn;
   const SALT_FLOOR = 0x2545F4914F6CDD1Dn;
-  const SALT_ROOM = 0x2545F4914F6CDD1Dn;
-  const SALT_RAYS = 0x8D1D4C6CDD2545F4n;
+  const SALT_SX = 0x1A2B3C4D5E6F7081n;
+  const SALT_SZ = 0x2B3C4D5E6F708192n;
+  const SALT_SW = 0x3C4D5E6F708192A3n;
+  const SALT_SEGV = 0x4D5E6F708192A3B4n;
+  const SALT_SEGH = 0x5E6F708192A3B4C5n;
+  const SALT_BLOCK = 0x6F708192A3B4C5D6n;
+  const SALT_DOOR = 0x708192A3B4C5D6E7n;
+  const SALT_DETAIL = 0x8192A3B4C5D6E7F8n;
 
-  const CELL = 48;
+  const EMPTY = -32768;
   const BASE_FLOOR_Y = 64;
   const MAX_FLOOR_Y = 88;
-  const ROOM_MAX_SIZE = 40;
-  const EMPTY = -32768;
 
   const DEFAULT_CONFIG = Object.freeze({
     seed: 0,
-    web1Spacing: 160,
-    web2Spacing: 190,
-    web3Spacing: 120,
-    web3WidthFactor: 0.7,
-    widthSpacing: 48,
-    widthBase: 0.045,
-    widthBreathMin: 0.9,
-    widthBreathRange: 1.1,
-    widthGrowMin: 0.55,
-    widthGrowMax: 1.0,
-    growDistance: 288,
+    pitch: 64,
+    jitter: 20,
+    streetWidthMax: 7,
+    segmentChance: 65,
+    blockChance: 86,
+    maxRooms: 3,
+    doorWidth: 3,
+    wideOpening: 6,
+    columnSpacing: 6,
+    partitionChance: 40,
     floorSpacing: 192,
-    floorLevels: 9,
-    roomNearGate: 3,
-    roomFarGate: 5,
-    roomNearRadius: 240,
-    roomSizeMin: 8,
-    roomSizeRandom: 21,
-    rayCount: 2,
-    rayMaxReach: 12,
-    rayBlindOneIn: 4,
-    rayBlindLen: 6
+    floorLevels: 9
   });
 
-  const ROOM_NAMES = {
-    6: "ARCHES", 7: "HALF-WALL", 8: "FALSE DOORS", 9: "FLOODED", 10: "CARPET RIDGE",
-    11: "STAIRS TO NOWHERE", 12: "FALLEN LIGHTS", 13: "WALL GAP", 14: "DEBRIS",
-    15: "CROSS WALLS", 16: "RED TINT", 17: "WIRE SPOOLS", 18: "PEELING WALLS",
-    19: "CRAWL TUNNEL", 20: "PAPER STACKS", 21: "GRID HOLES", 22: "DROPPED CEILING",
-    23: "BENCHES", 24: "THRESHOLD", 25: "WALL SCRAWL", 26: "SLOT WINDOWS", 27: "NEST",
-    28: "PIPE CHASE", 29: "SUNKEN SQUARE", 30: "WALL BULGE", 31: "CORRIDOR STUB",
-    32: "MIRROR PAIR", 33: "LEDGE WALK", 34: "BIG CLEAN", 35: "TWO PILLAR ISLAND",
-    36: "SLIT LIGHT", 37: "STEP ROWS", 38: "NOOK CIRCLE", 39: "FLOODED PIT",
-    40: "KEYHOLE", 41: "MONITOR WALL", 42: "STEEP PIT", 43: "LOFT SLAB",
-    44: "PAPER BLIZZARD", 45: "TIGHT GRID", 46: "BUMP CEILING", 47: "SOAKED RUN",
-    48: "CROOKED PILLARS", 49: "BROKEN TILES", 50: "ENDCAP"
+  const LAYOUT_NAMES = {
+    hall: "OPEN HALL",
+    offices: "OFFICES",
+    suite: "SUITE",
+    merge: "MERGED ROOMS"
   };
 
   let CFG = Object.assign({}, DEFAULT_CONFIG);
   let SEED = 0n;
-  let F = null;             // current noise fields
-  let view0 = { x0: 0, z0: 0, W: 0 };
+  let F = null;
+  let SPAWN_I = 0, SPAWN_J = 0;
+  let blockCache = new Map();
 
   function smooth(t) { return t * t * (3 - 2 * t); }
   function lerp(a, b, t) { return a + (b - a) * t; }
@@ -115,20 +101,8 @@
     };
   }
 
-  function makeFields(x0, z0, W) {
-    const pad = Math.max(0, CFG.rayMaxReach) * 2 + 24;
-    const minX = x0 - pad, minZ = z0 - pad, size = W + 2 * pad;
-    return {
-      web1: makeField(CFG.web1Spacing, SALT_WEB1, minX, minZ, size),
-      web2: makeField(CFG.web2Spacing, SALT_WEB2, minX, minZ, size),
-      web3: makeField(CFG.web3Spacing, SALT_WEB3, minX, minZ, size),
-      width: makeField(CFG.widthSpacing, SALT_WIDTH, minX, minZ, size),
-      floor: makeField(CFG.floorSpacing, SALT_FLOOR, minX, minZ, size)
-    };
-  }
-
   function floorHalf(x, z) {
-    const q = F.floor(x, z) * (CFG.floorLevels - 1);
+    const q = F(x, z) * (CFG.floorLevels - 1);
     return Math.round((BASE_FLOOR_Y + q * 3) * 2);
   }
 
@@ -136,133 +110,458 @@
     return Math.round(floorHalf(x, z) / 2);
   }
 
-  function webHalfWidth(x, z) {
-    const breathe = CFG.widthBreathMin + CFG.widthBreathRange * F.width(x, z);
-    const ramp = CFG.growDistance > 0
-      ? Math.min(1, Math.sqrt(x * x + z * z) / CFG.growDistance) : 1;
-    const grow = CFG.widthGrowMin + (CFG.widthGrowMax - CFG.widthGrowMin) * ramp;
-    return CFG.widthBase * breathe * grow;
+  // ---- Streets ----
+
+  function streetJitter(i, salt) {
+    const range = 2 * CFG.jitter + 1;
+    return Number(hash64(i, 0, salt) % BigInt(range)) - CFG.jitter;
   }
 
-  function inWeb(x, z) {
-    const w = webHalfWidth(x, z);
-    if (Math.abs(F.web1(x, z) - 0.5) < w) return true;
-    if (Math.abs(F.web2(x, z) - 0.5) < w) return true;
-    return Math.abs(F.web3(x, z) - 0.5) < w * CFG.web3WidthFactor;
+  function streetX(i) {
+    return i * CFG.pitch + (CFG.jitter > 0 ? streetJitter(i, SALT_SX) : 0);
   }
 
-  const DIR_X = [1, 0, -1, 0];
-  const DIR_Z = [0, 1, 0, -1];
-
-  let roomCache = new Map();
-
-  function room(cx, cz) {
-    const key = cx + "," + cz;
-    if (roomCache.has(key)) return roomCache.get(key);
-    const r = computeRoom(cx, cz);
-    roomCache.set(key, r);
-    return r;
+  function streetZ(j) {
+    return j * CFG.pitch + (CFG.jitter > 0 ? streetJitter(j, SALT_SZ) : 0);
   }
 
-  function computeRoom(cx, cz) {
-    const h = hash64(cx, cz, SALT_ROOM);
-    const origin = cx === 0 && cz === 0;
-    const dist = Math.sqrt((cx * CELL + 24) * (cx * CELL + 24) + (cz * CELL + 24) * (cz * CELL + 24));
-    const gate = dist < CFG.roomNearRadius ? CFG.roomNearGate : CFG.roomFarGate;
-    if (!origin && Number(h % 8n) >= gate) return null;
+  function streetWidth(i) {
+    const maxSteps = Math.max(0, Math.floor((CFG.streetWidthMax - 3) / 2));
+    return 3 + 2 * Number(hash64(i, 7, SALT_SW) % BigInt(maxSteps + 1));
+  }
 
-    const rand = CFG.roomSizeRandom > 0 ? Number((h >> 20n) % BigInt(CFG.roomSizeRandom)) : 0;
-    const size = Math.min(CFG.roomSizeMin + rand, ROOM_MAX_SIZE);
-    const half = Math.floor(size / 2);
-    const centerX = cx * CELL + clampInt(6 + Number((h >> 40n) % 37n), half + 2, 46 - half);
-    const centerZ = cz * CELL + clampInt(6 + Number((h >> 8n) % 37n), half + 2, 46 - half);
+  function streetHalf(i) {
+    return Math.floor(streetWidth(i) / 2);
+  }
 
-    // A room only exists when the web is close: its doors are short.
-    const hits = [];
-    for (let d = 0; d < 4; d++) {
-      const hit = findDoor(centerX, centerZ, half, DIR_X[d], DIR_Z[d], d);
-      if (hit) hits.push(hit);
+  /** Vertical street i, segment between horizontal streets j and j+1. */
+  function segV(i, j) {
+    if ((i === SPAWN_I || i === SPAWN_I + 1) && j === SPAWN_J) return true;
+    return Number(hash64(i, j, SALT_SEGV) % 100n) < BigInt(CFG.segmentChance);
+  }
+
+  /** Horizontal street j, segment between vertical streets i and i+1. */
+  function segH(i, j) {
+    if (i === SPAWN_I && (j === SPAWN_J || j === SPAWN_J + 1)) return true;
+    return Number(hash64(i, j, SALT_SEGH) % 100n) < BigInt(CFG.segmentChance);
+  }
+
+  function streetRange(min, max) {
+    const pad = CFG.jitter + Math.floor(CFG.streetWidthMax / 2) + 4;
+    return [
+      Math.floor((min - pad) / CFG.pitch) - 1,
+      Math.ceil((max + pad) / CFG.pitch) + 1
+    ];
+  }
+
+  function spawnCell() {
+    let i = 0;
+    while (streetX(i) > 0) i--;
+    while (streetX(i + 1) <= 0) i++;
+    SPAWN_I = i;
+    let j = 0;
+    while (streetZ(j) > 0) j--;
+    while (streetZ(j + 1) <= 0) j++;
+    SPAWN_J = j;
+  }
+
+  function blockAt(x, z) {
+    let i = Math.floor(x / CFG.pitch);
+    while (streetX(i) > x) i--;
+    while (streetX(i + 1) <= x) i++;
+    let j = Math.floor(z / CFG.pitch);
+    while (streetZ(j) > z) j--;
+    while (streetZ(j + 1) <= z) j++;
+    return { i, j };
+  }
+
+  // ---- Blocks and rooms ----
+
+  function blockBounds(i, j) {
+    return {
+      x0: streetX(i) + streetHalf(i) + 1,
+      x1: streetX(i + 1) - streetHalf(i + 1) - 1,
+      z0: streetZ(j) + streetHalf(j) + 1,
+      z1: streetZ(j + 1) - streetHalf(j + 1) - 1
+    };
+  }
+
+  function blockSides(i, j) {
+    return {
+      n: segH(i, j),
+      e: segV(i + 1, j),
+      s: segH(i, j + 1),
+      w: segV(i, j)
+    };
+  }
+
+  function hashNum(a, b, salt) {
+    return Number(hash64(a, b, salt) % 1000000n);
+  }
+
+  function blockInfo(i, j) {
+    const key = i + "," + j;
+    if (blockCache.has(key)) return blockCache.get(key);
+
+    const b = blockBounds(i, j);
+    if (b.x1 - b.x0 < 8 || b.z1 - b.z0 < 8) {
+      blockCache.set(key, null);
+      return null;
     }
-    if (!hits.length) return null;
-    hits.sort((a, b) => a.len - b.len || a.dir - b.dir);
+    const hb = hash64(i, j, SALT_BLOCK);
+    const forced = i === SPAWN_I && j === SPAWN_J;
+    if (!forced && Number(hb % 100n) >= BigInt(CFG.blockChance)) {
+      blockCache.set(key, null);
+      return null;
+    }
+    const sides = blockSides(i, j);
+    const present = ["n", "e", "s", "w"].filter(k => sides[k]);
+    if (!present.length) {
+      blockCache.set(key, null);
+      return null;
+    }
 
-    const roomH = (hits[0].webHalf + 1) & ~1; // nearest full block
+    let layout;
+    const lr = Number((hb >> 8n) % 100n);
+    if (forced) layout = "hall";
+    else if (lr < 20) layout = "hall";
+    else if (lr < 75) layout = "offices";
+    else if (lr < 90) layout = "suite";
+    else layout = "merge";
+
+    const primary = forced ? "n" : present[Number((hb >> 20n) % BigInt(present.length))];
+    const vertical = primary === "n" || primary === "s";
+
+    const ix0 = b.x0 + 1, ix1 = b.x1 - 1;
+    const iz0 = b.z0 + 1, iz1 = b.z1 - 1;
+    if (layout !== "hall" && layout !== "suite") {
+      const along = vertical ? ix1 - ix0 : iz1 - iz0;
+      if (along < 26) layout = "hall";
+    }
+    const rooms = [];
     const doors = [];
-    for (const hit of hits) {
-      if (doors.length >= CFG.rayCount) break;
-      if (Math.abs(hit.webHalf - roomH) > 1) continue;
-      doors.push({ dx: hit.dx, dz: hit.dz, len: hit.len, blind: false });
-    }
-    if (!doors.length) return null;
+    const solids = [];
 
-    if (CFG.rayBlindOneIn > 0 && Number((h >> 16n) % BigInt(CFG.rayBlindOneIn)) === 0) {
-      for (let d = 0; d < 4; d++) {
-        const used = doors.some(dd => dd.dx === DIR_X[d] && dd.dz === DIR_Z[d]);
-        if (!used) {
-          doors.push({ dx: DIR_X[d], dz: DIR_Z[d], len: CFG.rayBlindLen, blind: true });
-          break;
+    const doorW = clampInt(CFG.doorWidth, 2, 5);
+    const hashDoor = (roomIdx, side) => hash64(i, j * 97 + roomIdx * 11 + side, SALT_DOOR);
+
+    // Narrow door gap through a 1-block wall.
+    function doorN(roomIdx, x0, x1, wallZ) {
+      const span = x1 - x0 - doorW - 1;
+      if (span < 1) return;
+      const dx = x0 + 1 + Number(hashDoor(roomIdx, 1) % BigInt(span));
+      doors.push({ x0: dx, x1: dx + doorW - 1, z0: wallZ, z1: wallZ });
+    }
+    function doorS(roomIdx, x0, x1, wallZ) {
+      const span = x1 - x0 - doorW - 1;
+      if (span < 1) return;
+      const dx = x0 + 1 + Number(hashDoor(roomIdx, 2) % BigInt(span));
+      doors.push({ x0: dx, x1: dx + doorW - 1, z0: wallZ, z1: wallZ });
+    }
+    function doorEast(roomIdx, z0, z1, wallX) {
+      const span = z1 - z0 - doorW - 1;
+      if (span < 1) return;
+      const dz = z0 + 1 + Number(hashDoor(roomIdx, 3) % BigInt(span));
+      doors.push({ x0: wallX, x1: wallX, z0: dz, z1: dz + doorW - 1 });
+    }
+    function doorWest(roomIdx, z0, z1, wallX) {
+      const span = z1 - z0 - doorW - 1;
+      if (span < 1) return;
+      const dz = z0 + 1 + Number(hashDoor(roomIdx, 4) % BigInt(span));
+      doors.push({ x0: wallX, x1: wallX, z0: dz, z1: dz + doorW - 1 });
+    }
+
+    function addStreetDoor(roomIdx, r, side) {
+      if (side === "n") doorN(roomIdx, r.x0, r.x1, b.z0);
+      else if (side === "s") doorS(roomIdx, r.x0, r.x1, b.z1);
+      else if (side === "e") doorEast(roomIdx, r.z0, r.z1, b.x1);
+      else doorWest(roomIdx, r.z0, r.z1, b.x0);
+    }
+
+    // A room's extra exits on other present sides: loops and cross-links.
+    function extraDoors(roomIdx, r) {
+      for (const side of present) {
+        if (side === primary) continue;
+        const touches =
+          (side === "n" && r.z0 === iz0) || (side === "s" && r.z1 === iz1) ||
+          (side === "e" && r.x1 === ix1) || (side === "w" && r.x0 === ix0);
+        if (!touches) continue;
+        if (hashNum(i, j * 31 + roomIdx, SALT_DETAIL) % 100 < 45) {
+          addStreetDoor(roomIdx + 50, r, side);
         }
       }
     }
-    const floorY = clampInt(Math.floor(roomH / 2), BASE_FLOOR_Y, MAX_FLOOR_Y);
-    return { cx, cz, centerX, centerZ, size, floorY, doors };
-  }
 
-  function findDoor(centerX, centerZ, half, dx, dz, dir) {
-    for (let o = 2; o <= CFG.rayMaxReach; o++) {
-      let x, z;
-      if (dz === 0) {
-        x = centerX + (dx > 0 ? half + o : -half - o);
-        z = centerZ;
-        if (inWeb(x, z)) return { dx, dz, len: o, webHalf: floorHalf(x, z), dir };
-        if (inWeb(x, z + 1)) return { dx, dz, len: o, webHalf: floorHalf(x, z + 1), dir };
+    function addColumns(r) {
+      if (hashNum(i, j, SALT_DETAIL) % 100 >= 40) return;
+      const cs = clampInt(CFG.columnSpacing, 4, 12) + hashNum(i, j, SALT_DETAIL) % 3;
+      const w = r.x1 - r.x0, d = r.z1 - r.z0;
+      if (w < cs || d < cs) return;
+      const alongX = w >= d;
+      const addCol = (x, z) => {
+        if (forced && Math.abs(x - (r.x0 + r.x1) / 2) <= 2 && Math.abs(z - (r.z0 + r.z1) / 2) <= 2) return;
+        if (hashNum(x, z, SALT_DETAIL) % 100 < 80) {
+          solids.push({ x0: x, x1: x, z0: z, z1: z });
+        }
+      };
+      if (alongX) {
+        const zc = Math.floor((r.z0 + r.z1) / 2) + (hashNum(i, j, SALT_DETAIL) % 5) - 2;
+        for (let x = r.x0 + 3; x <= r.x1 - 3; x += cs) addCol(x, zc);
+        if (d > 24) {
+          const z2 = zc + Math.max(7, Math.floor(d / 3));
+          if (z2 < r.z1 - 2) for (let x = r.x0 + 3; x <= r.x1 - 3; x += cs) addCol(x, z2);
+        }
       } else {
-        z = centerZ + (dz > 0 ? half + o : -half - o);
-        x = centerX;
-        if (inWeb(x, z)) return { dx, dz, len: o, webHalf: floorHalf(x, z), dir };
-        if (inWeb(x + 1, z)) return { dx, dz, len: o, webHalf: floorHalf(x + 1, z), dir };
+        const xc = Math.floor((r.x0 + r.x1) / 2) + (hashNum(i, j, SALT_DETAIL) % 5) - 2;
+        for (let z = r.z0 + 3; z <= r.z1 - 3; z += cs) addCol(xc, z);
+        if (w > 24) {
+          const x2 = xc + Math.max(7, Math.floor(w / 3));
+          if (x2 < r.x1 - 2) for (let z = r.z0 + 3; z <= r.z1 - 3; z += cs) addCol(x2, z);
+        }
       }
     }
-    return null;
-  }
 
-  function typeValue(cx, cz) {
-    let a = (BigInt(cx) * K1) & MASK;
-    let b = (BigInt(cz) * K2) & MASK;
-    let h = a ^ b;
-    h ^= h >> 29n;
-    h = (h * K3) & MASK;
-    h ^= h >> 32n;
-    return Number(h % 100n);
-  }
-
-  function roomType(cx, cz) {
-    const v = typeValue(cx, cz);
-    let t;
-    if (v < 18) t = 0;
-    else if (v < 28) t = 1;
-    else if (v < 36) t = 2;
-    else if (v < 44) t = 3;
-    else if (v < 52) t = 4;
-    else if (v < 62) t = 5;
-    else t = 6 + Math.floor(((v - 62) * 45 + 22) / 38);
-    if (t === 2) {
-      const r = room(cx, cz);
-      if (!r) t = 0;
-      else if (r.size < 20) t = 1;
+    function addPartitions(r, roomIdx) {
+      if (CFG.partitionChance <= 0) return;
+      if (hashNum(i * 13 + roomIdx, j, SALT_DETAIL) % 100 >= CFG.partitionChance) return;
+      const side = hashNum(i, j + roomIdx, SALT_DETAIL) % 4;
+      const len = 4 + hashNum(i + roomIdx, j, SALT_DETAIL) % 5;
+      const w = r.x1 - r.x0, d = r.z1 - r.z0;
+      let s = null;
+      if (side === 0 && w > len + 6) {
+        const x = r.x0 + 3 + hashNum(roomIdx, i, SALT_DETAIL) % (w - len - 4);
+        s = { x0: x, x1: x, z0: r.z0, z1: Math.min(r.z0 + len, r.z1 - 3) };
+      } else if (side === 1 && d > len + 6) {
+        const z = r.z0 + 3 + hashNum(roomIdx, j, SALT_DETAIL) % (d - len - 4);
+        s = { x0: r.x1, x1: r.x1, z0: z, z1: z + len };
+      } else if (side === 2 && d > len + 6) {
+        const z = r.z0 + 3 + hashNum(roomIdx, i + 7, SALT_DETAIL) % (d - len - 4);
+        s = { x0: r.x0, x1: r.x0, z0: z, z1: z + len };
+      } else if (w > len + 6) {
+        const x = r.x0 + 3 + hashNum(roomIdx, j + 9, SALT_DETAIL) % (w - len - 4);
+        s = { x0: x, x1: x, z0: r.z1, z1: Math.max(r.z1 - len, r.z0 + 3) };
+      }
+      if (!s) return;
+      // never wall off a doorway
+      const blocksDoor = doors.some(d2 =>
+        !(s.x1 < d2.x0 - 1 || s.x0 > d2.x1 + 1 || s.z1 < d2.z0 - 1 || s.z0 > d2.z1 + 1));
+      if (!blocksDoor) solids.push(s);
     }
-    return t;
-  }
 
-  function roomTypeName(type) {
-    if (type >= 6) return ROOM_NAMES[type] || ("VARIANT " + type);
-    return ["PLAIN", "PILLARS", "MEZZANINE", "HOLES", "BLACKOUT", "TALL"][type] || "PLAIN";
+    if (layout === "hall") {
+      const r = { x0: ix0, x1: ix1, z0: iz0, z1: iz1 };
+      rooms.push({ ...r, name: LAYOUT_NAMES.hall });
+      for (const side of present) addStreetDoor(9, r, side);
+      addColumns(r);
+      addPartitions(r, 9);
+    } else if (layout === "suite") {
+      const r = { x0: ix0, x1: ix1, z0: iz0, z1: iz1 };
+      rooms.push({ ...r, name: LAYOUT_NAMES.suite });
+      for (const side of present) addStreetDoor(9, r, side);
+      addColumns(r);
+      // nested storage room in a hashed corner
+      const sw = Math.min(10, Math.max(6, Math.floor((r.x1 - r.x0) / 3)));
+      const sd = Math.min(10, Math.max(6, Math.floor((r.z1 - r.z0) / 3)));
+      const corner = hashNum(i, j, SALT_DETAIL) % 4;
+      const nx0 = corner === 0 || corner === 3 ? r.x0 + 3 : r.x1 - sw - 3;
+      const nz0 = corner < 2 ? r.z0 + 3 : r.z1 - sd - 3;
+      const nx1 = nx0 + sw, nz1 = nz0 + sd;
+      const inner = { x0: nx0 + 1, x1: nx1 - 1, z0: nz0 + 1, z1: nz1 - 1 };
+      if (inner.x1 - inner.x0 >= 4 && inner.z1 - inner.z0 >= 4) {
+        // storage walls (the inner room itself is already part of the big room)
+        solids.push(
+          { x0: nx0, x1: nx1, z0: nz0, z1: nz0 },
+          { x0: nx0, x1: nx1, z0: nz1, z1: nz1 },
+          { x0: nx0, x1: nx0, z0: nz0, z1: nz1 },
+          { x0: nx1, x1: nx1, z0: nz0, z1: nz1 }
+        );
+        rooms.push({ ...inner, name: LAYOUT_NAMES.suite });
+        // door from storage to the main suite
+        const dsp = inner.x1 - inner.x0 - 3;
+        if (dsp > 0) {
+          const dx = inner.x0 + 1 + Number(hashDoor(7, 3) % BigInt(dsp));
+          doors.push({ x0: dx, x1: dx + 2, z0: nz1, z1: nz1 });
+        }
+      }
+    } else if (layout === "merge") {
+      // two rooms with a wide opening in the dividing wall
+      const cut = vertical
+        ? ix0 + Math.floor((ix1 - ix0) * 0.5) + (hashNum(i, j, SALT_DETAIL) % 9) - 4
+        : iz0 + Math.floor((iz1 - iz0) * 0.5) + (hashNum(i, j, SALT_DETAIL) % 9) - 4;
+      if (vertical) {
+        const a = { x0: ix0, x1: cut - 1, z0: iz0, z1: iz1 };
+        const c = { x0: cut + 1, x1: ix1, z0: iz0, z1: iz1 };
+        rooms.push({ ...a, name: LAYOUT_NAMES.merge }, { ...c, name: LAYOUT_NAMES.merge });
+        addStreetDoor(1, a, primary); addStreetDoor(2, c, primary);
+        extraDoors(1, a); extraDoors(2, c);
+        const ow = clampInt(CFG.wideOpening, 4, 10);
+        const span = iz1 - iz0 - ow - 1;
+        if (span > 0) {
+          const z = iz0 + 1 + hashNum(i, j, SALT_DETAIL) % span;
+          doors.push({ x0: cut, x1: cut, z0: z, z1: z + ow - 1 });
+        }
+        addPartitions(a, 1); addPartitions(c, 2);
+      } else {
+        const a = { x0: ix0, x1: ix1, z0: iz0, z1: cut - 1 };
+        const c = { x0: ix0, x1: ix1, z0: cut + 1, z1: iz1 };
+        rooms.push({ ...a, name: LAYOUT_NAMES.merge }, { ...c, name: LAYOUT_NAMES.merge });
+        addStreetDoor(1, a, primary); addStreetDoor(2, c, primary);
+        extraDoors(1, a); extraDoors(2, c);
+        const ow = clampInt(CFG.wideOpening, 4, 10);
+        const span = ix1 - ix0 - ow - 1;
+        if (span > 0) {
+          const x = ix0 + 1 + hashNum(i, j, SALT_DETAIL) % span;
+          doors.push({ x0: x, x1: x + ow - 1, z0: cut, z1: cut });
+        }
+        addPartitions(a, 1); addPartitions(c, 2);
+      }
+    } else {
+      // OFFICES: a straight hallway from the primary street into the block,
+      // with offices on both sides. The hallway may dead-end in the block or
+      // pass through to the opposite street.
+      const alongZ = vertical;
+      const crossLen = alongZ ? ix1 - ix0 : iz1 - iz0;
+      if (crossLen < 20) {
+        const r = { x0: ix0, x1: ix1, z0: iz0, z1: iz1 };
+        rooms.push({ ...r, name: LAYOUT_NAMES.hall });
+        for (const side of present) addStreetDoor(9, r, side);
+        addColumns(r);
+      } else {
+        const corridorW = clampInt(CFG.doorWidth + 1, 3, 5);
+        const crossStart = alongZ ? ix0 : iz0;
+        const c0 = crossStart + 4 + hashNum(i, j, SALT_DETAIL) % Math.max(1, crossLen - 8 - corridorW);
+        const c1 = c0 + corridorW - 1;
+        const corridor = alongZ
+          ? { x0: c0, x1: c1, z0: iz0, z1: iz1 }
+          : { x0: ix0, x1: ix1, z0: c0, z1: c1 };
+        rooms.push({ ...corridor, name: "OFFICE CORRIDOR", corridor: true });
+
+        const nDoor = (z) => doors.push({ x0: corridor.x0, x1: corridor.x1, z0: z, z1: z });
+        const eDoor = (x) => doors.push({ x0: x, x1: x, z0: corridor.z0, z1: corridor.z1 });
+        if (primary === "n") nDoor(b.z0);
+        if (primary === "s") nDoor(b.z1);
+        if (primary === "e") eDoor(b.x1);
+        if (primary === "w") eDoor(b.x0);
+        const opp = { n: "s", s: "n", e: "w", w: "e" }[primary];
+        if (sides[opp]) {
+          if (opp === "n") nDoor(b.z0);
+          if (opp === "s") nDoor(b.z1);
+          if (opp === "e") eDoor(b.x1);
+          if (opp === "w") eDoor(b.x0);
+        }
+
+        function carveStrip(x0, x1, z0, z1, wallAxis, wallPos, stripIdx) {
+          if (x1 - x0 < 5 || z1 - z0 < 5) return;
+          const long = alongZ ? z1 - z0 + 1 : x1 - x0 + 1;
+          let n = 1 + hashNum(i + stripIdx * 17, j, SALT_DETAIL) % 3;
+          n = Math.min(n, Math.max(1, Math.floor(long / 12)));
+          const spans = [];
+          if (n <= 1) {
+            spans.push([0, long - 1]);
+          } else {
+            const cuts = [];
+            let prev = -1;
+            for (let k = 1; k < n; k++) {
+              const base = Math.round(long * k / n);
+              const jit = (hashNum(i + k + stripIdx, j, SALT_DETAIL) % 7) - 3;
+              const lo = (prev < 0 ? 0 : prev + 1) + 10;
+              const hi = long - 10 * (n - k);
+              const c = clampInt(base + jit, lo, Math.max(lo, hi));
+              cuts.push(c);
+              prev = c;
+            }
+            let start = 0;
+            for (const c of cuts) { spans.push([start, c - 1]); start = c + 1; }
+            spans.push([start, long - 1]);
+          }
+          let idx2 = 0;
+          for (const [s0, s1] of spans) {
+            idx2++;
+            if (s1 - s0 + 1 < 8) continue;
+            const r = alongZ
+              ? { x0, x1, z0: z0 + s0, z1: z0 + s1 }
+              : { x0: x0 + s0, x1: x0 + s1, z0, z1 };
+            // offices are 10-18 deep: split the strip across its depth too,
+            // so a block does not turn into a few giant halls
+            const d0 = alongZ ? r.x0 : r.z0;
+            const d1 = alongZ ? r.x1 : r.z1;
+            const parts = [];
+            let splitWall = -1;
+            if (d1 - d0 >= 18) {
+              splitWall = d0 + 4 + hashNum(i + idx2, j + stripIdx, SALT_DETAIL) % Math.max(1, d1 - d0 - 8);
+              const outerPositive = wallPos > (d0 + d1) / 2;
+              const outerSpan = outerPositive ? [d0, splitWall - 1] : [splitWall + 1, d1];
+              const innerSpan = outerPositive ? [splitWall + 1, d1] : [d0, splitWall - 1];
+              parts.push(
+                { rect: alongZ ? { x0: outerSpan[0], x1: outerSpan[1], z0: r.z0, z1: r.z1 }
+                               : { x0: r.x0, x1: r.x1, z0: outerSpan[0], z1: outerSpan[1] }, outer: true },
+                { rect: alongZ ? { x0: innerSpan[0], x1: innerSpan[1], z0: r.z0, z1: r.z1 }
+                               : { x0: r.x0, x1: r.x1, z0: innerSpan[0], z1: innerSpan[1] }, outer: false }
+              );
+              // door between the outer and inner office
+              if (alongZ) {
+                const span = r.z1 - r.z0 - doorW - 1;
+                if (span >= 1) {
+                  const z = r.z0 + 1 + Number(hashDoor(idx2 * 5 + stripIdx, 5) % BigInt(span));
+                  doors.push({ x0: splitWall, x1: splitWall, z0: z, z1: z + doorW - 1 });
+                }
+              } else {
+                const span = r.x1 - r.x0 - doorW - 1;
+                if (span >= 1) {
+                  const x = r.x0 + 1 + Number(hashDoor(idx2 * 5 + stripIdx, 6) % BigInt(span));
+                  doors.push({ x0: x, x1: x + doorW - 1, z0: splitWall, z1: splitWall });
+                }
+              }
+            } else {
+              parts.push({ rect: r, outer: true });
+            }
+            for (const part of parts) {
+              const rr = part.rect;
+              rooms.push({ ...rr, name: LAYOUT_NAMES.offices });
+              if (part.outer) {
+                if (wallAxis === "z") {
+                  const span = (rr.z1 - rr.z0) - doorW - 1;
+                  if (span >= 1) {
+                    const z = rr.z0 + 1 + Number(hashDoor(stripIdx * 7 + idx2, 3) % BigInt(span));
+                    doors.push({ x0: wallPos, x1: wallPos, z0: z, z1: z + doorW - 1 });
+                  }
+                } else {
+                  const span = (rr.x1 - rr.x0) - doorW - 1;
+                  if (span >= 1) {
+                    const x = rr.x0 + 1 + Number(hashDoor(stripIdx * 7 + idx2, 1) % BigInt(span));
+                    doors.push({ x0: x, x1: x + doorW - 1, z0: wallPos, z1: wallPos });
+                  }
+                }
+              }
+              extraDoors(stripIdx * 7 + idx2 + (part.outer ? 0 : 13), rr);
+              addPartitions(rr, stripIdx * 7 + idx2 + (part.outer ? 0 : 13));
+            };
+          }
+        }
+
+        if (alongZ) {
+          carveStrip(ix0, c0 - 2, iz0, iz1, "z", c0 - 1, 1);
+          carveStrip(c1 + 2, ix1, iz0, iz1, "z", c1 + 1, 2);
+        } else {
+          carveStrip(ix0, ix1, iz0, c0 - 2, "x", c0 - 1, 1);
+          carveStrip(ix0, ix1, c1 + 2, iz1, "x", c1 + 1, 2);
+        }
+      }
+    }
+
+    const info = {
+      i, j, x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1,
+      layout, rooms, doors, solids, forced
+    };
+    blockCache.set(key, info);
+    return info;
   }
 
   function begin(cfg) {
     CFG = Object.assign({}, DEFAULT_CONFIG, cfg || {});
     SEED = BigInt(Math.trunc(CFG.seed) || 0);
-    roomCache = new Map();
+    blockCache = new Map();
+    spawnCell();
   }
 
   /**
@@ -277,111 +576,98 @@
     const cz = Math.round((view && view.cz) || 0);
     const x0 = Math.floor(cx - W / 2);
     const z0 = Math.floor(cz - W / 2);
-    view0 = { x0, z0, W };
-    F = makeFields(x0, z0, W);
+
+    F = makeField(CFG.floorSpacing, SALT_FLOOR, x0, z0, W);
 
     const floor = new Int16Array(W * W).fill(EMPTY);
-    const merge = new Int16Array(W * W).fill(EMPTY);
-    const kind = new Uint8Array(W * W); // 0 mass, 1 web, 2 ray, 3 room
+    const kind = new Uint8Array(W * W); // 0 mass, 1 street, 2 door, 3 room
 
-    // ---- web (rooms and their wall rings punch holes in it) ----
-    for (let pz = 0; pz < W; pz++) {
-      const z = z0 + pz;
-      const cellZ = Math.floor(z / CELL);
-      const row = pz * W;
-      for (let px = 0; px < W; px++) {
-        const x = x0 + px;
-        const own = room(Math.floor(x / CELL), cellZ);
-        if (own) {
-          const half = Math.floor(own.size / 2);
-          if (x >= own.centerX - half - 1 && x <= own.centerX + half + 1
-              && z >= own.centerZ - half - 1 && z <= own.centerZ + half + 1) continue;
-        }
-        if (inWeb(x, z)) {
-          const s = floorHalf(x, z);
-          merge[row + px] = s;
-          floor[row + px] = s;
-          kind[row + px] = 1;
-        }
-      }
-    }
-
-    // ---- rooms + short doorways (ascending cells, matching the generator) ----
-    const reach = CFG.rayMaxReach + 2;
-    const rooms = [];
-    const roomIndex = new Map();
-    const cellMinX = Math.floor((x0 - reach) / CELL) - 1;
-    const cellMaxX = Math.floor((x0 + W - 1 + reach) / CELL) + 1;
-    const cellMinZ = Math.floor((z0 - reach) / CELL) - 1;
-    const cellMaxZ = Math.floor((z0 + W - 1 + reach) / CELL) + 1;
-
-    const putDoor = (x, z, s) => {
+    const open = (x, z, k) => {
       const px = x - x0, pz = z - z0;
       if (px < 0 || px >= W || pz < 0 || pz >= W) return;
       const idx = pz * W + px;
-      const prev = merge[idx];
-      let sc = s;
-      if (prev !== EMPTY) {
-        if (sc > prev + 1) sc = prev + 1;
-        else if (sc < prev - 1) sc = prev - 1;
-      }
-      merge[idx] = sc;
-      floor[idx] = sc;
-      kind[idx] = 2;
+      floor[idx] = floorHalf(x, z);
+      kind[idx] = k;
+    };
+    const solid = (x, z) => {
+      const px = x - x0, pz = z - z0;
+      if (px < 0 || px >= W || pz < 0 || pz >= W) return;
+      const idx = pz * W + px;
+      floor[idx] = EMPTY;
+      kind[idx] = 0;
     };
 
-    for (let ccx = cellMinX; ccx <= cellMaxX; ccx++) {
-      for (let ccz = cellMinZ; ccz <= cellMaxZ; ccz++) {
-        const rm = room(ccx, ccz);
-        if (!rm) continue;
-        const half = Math.floor(rm.size / 2);
-        const rMinX = rm.centerX - half, rMaxX = rm.centerX + half;
-        const rMinZ = rm.centerZ - half, rMaxZ = rm.centerZ + half;
-        const entry = {
-          cx: rm.cx, cz: rm.cz, centerX: rm.centerX, centerZ: rm.centerZ,
-          size: rm.size, floorY: rm.floorY, type: roomType(ccx, ccz), sealed: false
-        };
-        rooms.push(entry);
-        roomIndex.set(ccx + "," + ccz, entry);
+    // ---- streets ----
+    const [si0, si1] = streetRange(x0, x0 + W - 1);
+    const [sj0, sj1] = streetRange(z0, z0 + W - 1);
+    for (let i = si0; i <= si1; i++) {
+      const sx = streetX(i), half = streetHalf(i);
+      for (let j = sj0; j <= sj1; j++) {
+        if (!segV(i, j)) continue;
+        const za = streetZ(j), zb = streetZ(j + 1);
+        for (let x = sx - half; x <= sx + half; x++) {
+          for (let z = Math.max(za, z0); z <= Math.min(zb, z0 + W - 1); z++) open(x, z, 1);
+        }
+      }
+    }
+    for (let j = sj0; j <= sj1; j++) {
+      const sz = streetZ(j), half = streetHalf(j);
+      for (let i = si0; i <= si1; i++) {
+        if (!segH(i, j)) continue;
+        const xa = streetX(i), xb = streetX(i + 1);
+        for (let z = sz - half; z <= sz + half; z++) {
+          for (let x = Math.max(xa, x0); x <= Math.min(xb, x0 + W - 1); x++) open(x, z, 1);
+        }
+      }
+    }
 
-        const nearRaster = rMaxX + reach >= x0 && rMinX - reach <= x0 + W - 1
-          && rMaxZ + reach >= z0 && rMinZ - reach <= z0 + W - 1;
-        if (!nearRaster) continue;
-
-        const roomH = rm.floorY * 2;
-        for (const door of rm.doors) {
-          for (let o = 1; o <= door.len; o++) {
-            if (door.dx !== 0) {
-              const x = (door.dx > 0 ? rm.centerX + half : rm.centerX - half) + door.dx * o;
-              putDoor(x, rm.centerZ, roomH);
-              putDoor(x, rm.centerZ + 1, roomH);
-            } else {
-              const z = (door.dz > 0 ? rm.centerZ + half : rm.centerZ - half) + door.dz * o;
-              putDoor(rm.centerX, z, roomH);
-              putDoor(rm.centerX + 1, z, roomH);
-            }
+    // ---- blocks ----
+    const rooms = [];
+    const blockMap = new Map();
+    for (let i = si0; i <= si1; i++) {
+      for (let j = sj0; j <= sj1; j++) {
+        const b = blockInfo(i, j);
+        if (!b) continue;
+        if (b.x1 < x0 || b.x0 > x0 + W - 1 || b.z1 < z0 || b.z0 > z0 + W - 1) continue;
+        blockMap.set(i + "," + j, b);
+        for (const r of b.rooms) {
+          for (let x = Math.max(r.x0, x0); x <= Math.min(r.x1, x0 + W - 1); x++) {
+            for (let z = Math.max(r.z0, z0); z <= Math.min(r.z1, z0 + W - 1); z++) open(x, z, 3);
+          }
+          rooms.push({
+            i, j, x: Math.floor((r.x0 + r.x1) / 2), z: Math.floor((r.z0 + r.z1) / 2),
+            x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1,
+            name: r.name, layout: b.layout, sealed: false
+          });
+        }
+        for (const s of b.solids) {
+          for (let x = s.x0; x <= s.x1; x++) {
+            for (let z = s.z0; z <= s.z1; z++) solid(x, z);
           }
         }
-
-        // Room floor is authoritative (the generator carves the whole box at roomH).
-        const aX = Math.max(x0, rMinX), bX = Math.min(x0 + W - 1, rMaxX);
-        const aZ = Math.max(z0, rMinZ), bZ = Math.min(z0 + W - 1, rMaxZ);
-        for (let x = aX; x <= bX; x++) {
-          for (let z = aZ; z <= bZ; z++) {
-            const idx = (z - z0) * W + (x - x0);
-            floor[idx] = roomH;
-            kind[idx] = 3;
+        for (const d of b.doors) {
+          for (let x = d.x0; x <= d.x1; x++) {
+            for (let z = d.z0; z <= d.z1; z++) open(x, z, 2);
           }
         }
       }
     }
 
-    // ---- reachability from the entry room ----
-    const spawn = room(0, 0);
+    // ---- reachability from the entry hall ----
+    const spawnBlock = blockInfo(SPAWN_I, SPAWN_J);
+    let spawn = null;
+    if (spawnBlock && spawnBlock.rooms.length) {
+      const r = spawnBlock.rooms[0];
+      spawn = {
+        x: Math.floor((r.x0 + r.x1) / 2),
+        z: Math.floor((r.z0 + r.z1) / 2),
+        y: Math.round(floorHalf(Math.floor((r.x0 + r.x1) / 2), Math.floor((r.z0 + r.z1) / 2)) / 2)
+      };
+    }
     let visited = null;
     let spawnInside = false;
     if (spawn) {
-      const sx = spawn.centerX - x0, sz = spawn.centerZ - z0;
+      const sx = spawn.x - x0, sz = spawn.z - z0;
       spawnInside = sx >= 0 && sx < W && sz >= 0 && sz < W;
       if (spawnInside) {
         visited = new Uint8Array(W * W);
@@ -403,7 +689,7 @@
           if (visited[ni]) return;
           const ns = floor[ni];
           if (ns === EMPTY) return;
-          if (ns - s <= 1) { // half-step up, any fall down
+          if (ns - s <= 1) {
             visited[ni] = 1;
             queue[tail++] = ni;
           }
@@ -411,9 +697,9 @@
       }
     }
 
-    // ---- stats over an inset window (raster edges are not trustworthy) ----
+    // ---- stats ----
     const margin = Math.min(48, Math.floor(W / 6));
-    let carved = 0, carvedInner = 0, reachInner = 0;
+    let carvedInner = 0, reachInner = 0;
     let floorMin = 9999, floorMax = -9999;
     for (let pz = margin; pz < W - margin; pz++) {
       const row = pz * W;
@@ -427,35 +713,45 @@
         if (visited && visited[idx]) reachInner++;
       }
     }
+    let carved = 0;
     for (let i = 0; i < floor.length; i++) if (floor[i] !== EMPTY) carved++;
 
     if (visited) {
-      for (const entry of rooms) {
-        const px = entry.centerX - x0, pz = entry.centerZ - z0;
-        if (px < margin || px >= W - margin || pz < margin || pz >= W - margin) continue;
-        entry.sealed = !visited[pz * W + px];
+      for (const r of rooms) {
+        const cpx = r.x - x0, cpz = r.z - z0;
+        // rooms cut by the preview edge would report false seals
+        if (cpx < margin || cpx >= W - margin || cpz < margin || cpz >= W - margin) continue;
+        let open = 0, seen = 0;
+        for (let x = Math.max(r.x0, x0 + margin); x <= Math.min(r.x1, x0 + W - 1 - margin); x++) {
+          for (let z = Math.max(r.z0, z0 + margin); z <= Math.min(r.z1, z0 + W - 1 - margin); z++) {
+            const i2 = (z - z0) * W + (x - x0);
+            if (floor[i2] === EMPTY) continue;
+            open++;
+            if (visited[i2]) seen++;
+          }
+        }
+        if (open > 0) r.sealed = seen === 0;
       }
     }
     const sealedCount = rooms.filter(r => r.sealed).length;
-
-    const carvedPct = 100 * carvedInner / (Math.max(1, (W - 2 * margin) * (W - 2 * margin)));
-    const reachPct = visited && carvedInner > 0 ? 100 * reachInner / carvedInner : null;
+    const roomsInner = rooms.filter(r => {
+      const px = r.x - x0, pz = r.z - z0;
+      return px >= margin && px < W - margin && pz >= margin && pz < W - margin;
+    }).length;
 
     return {
       cfg: Object.assign({}, CFG),
       x0, z0, W, margin,
-      floor, kind,
-      visited,
-      rooms, roomIndex,
-      spawn: spawn ? { x: spawn.centerX, z: spawn.centerZ, y: spawn.floorY, inside: spawnInside } : null,
+      floor, kind, visited,
+      rooms, blockMap,
+      spawn,
       stats: {
-        span: W, carved, carvedInner, carvedPct, reachPct,
+        span: W, carved, carvedInner,
+        carvedPct: 100 * carvedInner / Math.max(1, (W - 2 * margin) * (W - 2 * margin)),
+        reachPct: visited && carvedInner > 0 ? 100 * reachInner / carvedInner : null,
         sealedRooms: visited ? sealedCount : null,
         rooms: rooms.length,
-        roomsInner: rooms.filter(r => {
-          const px = r.centerX - x0, pz = r.centerZ - z0;
-          return px >= margin && px < W - margin && pz >= margin && pz < W - margin;
-        }).length,
+        roomsInner,
         floorMin: floorMin === 9999 ? null : floorMin / 2,
         floorMax: floorMax === -9999 ? null : floorMax / 2,
         spawnInside
@@ -465,33 +761,38 @@
         if (px < 0 || px >= W || pz < 0 || pz >= W) return null;
         const idx = pz * W + px;
         const s = floor[idx];
-        const cellX = Math.floor(wx / CELL), cellZ = Math.floor(wz / CELL);
-        const rm = roomIndex.get(cellX + "," + cellZ) || null;
+        const { i, j } = blockAt(wx, wz);
+        const info = blockMap.get(i + "," + j) || blockInfo(i, j);
         return {
-          x: wx, z: wz, cellX, cellZ,
+          x: wx, z: wz, i, j,
           kind: kind[idx],
           carved: s !== EMPTY,
           floorHalf: s,
           floorY: s === EMPTY ? null : s / 2,
           reachable: visited ? !!visited[idx] : null,
-          room: rm
+          block: info
         };
       }
     };
   }
 
+  function blockLayoutAt(x, z) {
+    const { i, j } = blockAt(x, z);
+    return blockInfo(i, j);
+  }
+
   return {
     DEFAULT_CONFIG,
-    ROOM_NAMES,
+    LAYOUT_NAMES,
     build,
-    roomType,
-    roomTypeName,
     floorSurface,
+    blockLayoutAt,
     debug: {
-      inWeb: (x, z) => inWeb(x, z),
-      floorHalf: (x, z) => floorHalf(x, z),
-      webHalfWidth: (x, z) => webHalfWidth(x, z),
-      room: (cx, cz) => room(cx, cz)
+      streetX, streetZ, streetWidth, segV, segH, blockInfo, spawnCell,
+      inStreet: (x, z) => {
+        const { i, j } = blockAt(x, z);
+        return { i, j };
+      }
     }
   };
 });
