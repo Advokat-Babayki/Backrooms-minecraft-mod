@@ -358,7 +358,7 @@
   "use strict";
   const Core = window.Level0Core;
   const DEFAULTS = Core.DEFAULT_CONFIG;
-  const STORE_KEY = "backrooms.level0.preview.v1";
+  const STORE_KEY = "backrooms.level0.preview.v2";
 
   const state = {
     config: Object.assign({}, DEFAULTS),
@@ -403,26 +403,18 @@
       ]
     },
     {
-      title: "Комнаты",
-      hint: "Порог — сколько ячеек из 8 получают комнату (0..8). У спавна действует свой, более строгий порог.",
+      title: "Комнаты и двери",
+      hint: "Комната существует только рядом с паутиной и сидит на её высоте. Двери короткие: 1–4 штуки до ближайшего коридора, поэтому длинных прямых спиц больше нет.",
       items: [
         { key: "roomNearGate", label: "Порог у спавна", min: 0, max: 8, step: 1, fmt: gateFmt },
         { key: "roomFarGate", label: "Порог вдали", min: 0, max: 8, step: 1, fmt: gateFmt },
         { key: "roomNearRadius", label: "Радиус «у спавна»", min: 0, max: 640, step: 10 },
         { key: "roomSizeMin", label: "Размер · минимум", min: 6, max: 20, step: 1 },
-        { key: "roomSizeRandom", label: "Размер · разброс", min: 1, max: 30, step: 1 }
-      ]
-    },
-    {
-      title: "Лучи и тупики",
-      hint: "Луч растёт от комнаты до ближайшего коридора. Слепой луч обрывается в стену — это тупик.",
-      items: [
-        { key: "rayCount", label: "Лучей на комнату", min: 0, max: 8, step: 1 },
-        { key: "rayMinLen", label: "Длина · минимум", min: 6, max: 60, step: 1 },
-        { key: "rayLenRandom", label: "Длина · разброс", min: 1, max: 40, step: 1 },
-        { key: "rayMaxReach", label: "Максимальный поиск", min: 24, max: 160, step: 4 },
-        { key: "rayBlindOneIn", label: "Слепой луч", min: 0, max: 8, step: 1, fmt: blindFmt },
-        { key: "rayBlindLen", label: "Длина слепого", min: 3, max: 24, step: 1 }
+        { key: "roomSizeRandom", label: "Размер · разброс", min: 1, max: 30, step: 1 },
+        { key: "rayCount", label: "Дверей на комнату", min: 1, max: 4, step: 1 },
+        { key: "rayMaxReach", label: "Макс. длина двери", min: 4, max: 24, step: 1 },
+        { key: "rayBlindOneIn", label: "Слепой тупик", min: 0, max: 8, step: 1, fmt: blindFmt },
+        { key: "rayBlindLen", label: "Длина слепого", min: 3, max: 12, step: 1 }
       ]
     }
   ];
@@ -687,8 +679,8 @@
     statsEl.innerHTML = chips.join("");
 
     const problems = [];
-    if (s.sealedRooms > 0) problems.push("есть запертые комнаты: добавь лучей (rayCount) или увеличь их минимальную длину.");
-    if (s.reachPct !== null && s.reachPct < 90) problems.push("слишком много недостижимых карманов: проверь ширину коридоров и лучи.");
+    if (s.sealedRooms > 0) problems.push("есть запертые комнаты: добавь дверей (rayCount) или увеличь их максимальную длину.");
+    if (s.reachPct !== null && s.reachPct < 90) problems.push("слишком много недостижимых карманов: проверь ширину коридоров и двери.");
     if (!s.spawnInside) problems.push("точка входа вне кадра — статистика связности не считается. Вернись «К точке входа».");
     if (problems.length) {
       warnEl.textContent = problems.join(" ");
@@ -725,7 +717,7 @@
       hoverEl.innerHTML = "x=" + wx + " z=" + wz + " · ячейка [" + info.cellX + ", " + info.cellZ + "] · <b>масса</b> (не вырезано)";
       return;
     }
-    let what = info.kind === 3 ? "комната" : info.kind === 2 ? "луч" : "коридор";
+    let what = info.kind === 3 ? "комната" : info.kind === 2 ? "дверь" : "коридор";
     let text = "x=" + wx + " z=" + wz + " · ячейка [" + info.cellX + ", " + info.cellZ + "] · <b>" +
       what + "</b> · пол y=" + (info.floorY + 1).toFixed(1);
     if (info.room) {

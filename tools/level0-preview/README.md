@@ -13,7 +13,7 @@ xdg-open tools/level0-preview/index.html
 
 ## Что видно на карте
 
-- жёлтое — вырезанное пространство (коридоры, лучи, комнаты);
+- жёлтое — вырезанное пространство (коридоры, двери, комнаты);
 - тёмное — сплошная масса стен;
 - красноватые пиксели — вырезано, но недостижимо из точки входа;
 - голубой крестик — точка входа `/backrooms enter`;
@@ -43,7 +43,9 @@ xdg-open tools/level0-preview/index.html
 
 Превью показывает план сверху: интерьеры 45 вариантов комнат (колонны, ямы,
 мезонины и т.п.) не рисуются, но факт комнаты, её размер, тип, плоский пол и
-лучи учитываются.
+короткие двери учитываются. Комната существует только рядом с паутиной:
+длинных прямых коридоров-спиц больше нет, только 1-4 двери до ближайшего
+коридора (не дальше `rayMaxReach`).
 
 Проверка связности повторяет правила игры: подъём не больше 0.5 блока за шаг,
 спуск — любой. Статистика считается по внутреннему окну с отступом 48 блоков
@@ -72,10 +74,8 @@ xdg-open tools/level0-preview/index.html
 | `roomNearRadius`    | `ROOM_NEAR_RADIUS`       |
 | `roomSizeMin`       | `ROOM_SIZE_MIN`          |
 | `roomSizeRandom`    | `ROOM_SIZE_RANDOM`       |
-| `rayCount`          | `RAY_COUNT`              |
-| `rayMinLen`         | `RAY_MIN_LEN`            |
-| `rayLenRandom`      | `RAY_LEN_RANDOM`         |
-| `rayMaxReach`       | `RAY_MAX_REACH`          |
+| `rayCount`          | `RAY_COUNT` (дверей)     |
+| `rayMaxReach`       | `RAY_MAX_REACH` (длина двери) |
 | `rayBlindOneIn`     | `RAY_BLIND_ONE_IN`       |
 | `rayBlindLen`       | `RAY_BLIND_LEN`          |
 

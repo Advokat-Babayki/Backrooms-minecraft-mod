@@ -50,12 +50,10 @@ public final class Level0Plan {
     public static final int ROOM_SIZE_MIN = 8;
     public static final int ROOM_SIZE_RANDOM = 21;
     public static final int ROOM_MAX_SIZE = 40;
-    public static final int RAY_COUNT = 5;
-    public static final int RAY_MIN_LEN = 14;
-    public static final int RAY_LEN_RANDOM = 18;
-    public static final int RAY_MAX_REACH = 96;
-    public static final int RAY_BLIND_ONE_IN = 4;              // 0 = no blind rays
-    public static final int RAY_BLIND_LEN = 8;
+    public static final int RAY_COUNT = 2;                // doorways per room
+    public static final int RAY_MAX_REACH = 12;           // how far a door looks for the web
+    public static final int RAY_BLIND_ONE_IN = 4;         // short dead-end stubs; 0 = none
+    public static final int RAY_BLIND_LEN = 6;
 
     public static final int WIDTH_SPACING = 48;               // width breathing wavelength
     private static final long SALT_WEB1 = 0x5DEECE66DL;
@@ -64,10 +62,11 @@ public final class Level0Plan {
     private static final long SALT_WIDTH = 0x6CDD1D2545F4914DL;
     private static final long SALT_FLOOR = 0x2545F4914F6CDD1DL;
     private static final long SALT_ROOM = 0x2545F4914F6CDD1DL;
-    private static final long SALT_RAYS = 0x8D1D4C6CDD2545F4L;
 
 
     private final long seed;
+    private final java.util.concurrent.ConcurrentHashMap<Long, java.util.Optional<Room>> roomCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     public Level0Plan(long seed) {
         this.seed = seed;
@@ -161,17 +160,42 @@ public final class Level0Plan {
         return Math.abs(noise(x, z, WEB3_SPACING, SALT_WEB3) - 0.5) < w * WEB3_WIDTH_FACTOR;
     }
 
-    // ---- Rooms: rare flat islands on the web ----
+    // ---- Rooms: flat rooms that always sit on the web ----
 
-    public record Room(int cx, int cz, int centerX, int centerZ, int size, int floorY) {}
+    /** One doorway: direction, length in blocks outside the room, blind = ends in a wall. */
+    public record Door(int dx, int dz, int len, boolean blind) {}
+
+    public record Room(int cx, int cz, int centerX, int centerZ, int size, int floorY,
+            java.util.List<Door> doors) {}
+
+    private record DoorHit(int dx, int dz, int len, int webHalf, int dir) {}
+
+    private static final int[][] DOOR_DIRS = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
+
+    /** Room bounds in block coords. */
+    public static int roomMinX(Room r) { return r.centerX - r.size / 2; }
+    public static int roomMaxX(Room r) { return r.centerX + r.size / 2; }
+    public static int roomMinZ(Room r) { return r.centerZ - r.size / 2; }
+    public static int roomMaxZ(Room r) { return r.centerZ + r.size / 2; }
 
     /**
-     * The room of a cell, or null when the cell has none. Rooms are rare and
-     * irregular: presence, size and position are hashed, and cells near the
-     * origin are stricter so the world starts tight and keeps opening up.
+     * The room of a cell, or null when the cell has none. A room only exists
+     * when the corridor web comes within RAY_MAX_REACH of it: rooms are part
+     * of the web, not islands connected by long straight spokes. One to
+     * RAY_COUNT short doorways link the room to the nearest web columns.
      */
     @Nullable
     public Room room(int cx, int cz) {
+        long key = ((long) cx << 32) ^ (cz & 0xFFFFFFFFL);
+        java.util.Optional<Room> cached = roomCache.get(key);
+        if (cached != null) return cached.orElse(null);
+        Room room = computeRoom(cx, cz);
+        roomCache.put(key, java.util.Optional.ofNullable(room));
+        return room;
+    }
+
+    @Nullable
+    private Room computeRoom(int cx, int cz) {
         long h = hash(seed, cx, cz, SALT_ROOM);
         boolean origin = cx == 0 && cz == 0;
         double dist = Math.sqrt((cellMinBlock(cx) + 24.0) * (cellMinBlock(cx) + 24.0)
@@ -184,66 +208,65 @@ public final class Level0Plan {
         int half = size / 2;
         int centerX = cellMinBlock(cx) + clampInt(6 + (int) Math.floorMod(h >>> 40, 37), half + 2, 46 - half);
         int centerZ = cellMinBlock(cz) + clampInt(6 + (int) Math.floorMod(h >>> 8, 37), half + 2, 46 - half);
-        // Flat floor pinned to the local web height (rounded to whole blocks)
-        int floorY = clampInt((floorHalf(centerX, centerZ) + 1) / 2, BASE_FLOOR_Y, MAX_FLOOR_Y);
-        return new Room(cx, cz, centerX, centerZ, size, floorY);
-    }
 
-    /** Room bounds in block coords. */
-    public static int roomMinX(Room r) { return r.centerX - r.size / 2; }
-    public static int roomMaxX(Room r) { return r.centerX + r.size / 2; }
-    public static int roomMinZ(Room r) { return r.centerZ - r.size / 2; }
-    public static int roomMaxZ(Room r) { return r.centerZ + r.size / 2; }
-
-    // ---- Hallway rays reaching out from a room ----
-
-    /**
-     * One hallway ray: an eight-way direction, a length in blocks, and
-     * whether it is deliberately blind (a dead end in the mass).
-     */
-    public record Ray(int dx, int dz, int len, boolean blind) {}
-
-    /**
-     * Rays of a room: RAY_COUNT hashed spokes. Each spoke grows from its
-     * minimum length onward until it touches the web (hard cap RAY_MAX_REACH),
-     * so every room is structurally tied into the corridor network; plus a
-     * chance of one blind spoke that stops short and ends in a wall (a dead
-     * end). Blind chance comes from rayBlindOneIn: 0 means never.
-     */
-    public java.util.List<Ray> rays(Room room) {
-        java.util.List<Ray> out = new java.util.ArrayList<>();
-        long h = hash(seed, room.cx(), room.cz(), SALT_RAYS);
-        int[] dirsX = {1, 1, 0, -1, -1, -1, 0, 1};
-        int[] dirsZ = {0, 1, 1, 1, 0, -1, -1, -1};
-        int first = (int) Math.floorMod(h, 8);
-        for (int i = 0; i < RAY_COUNT; i++) {
-            int dir = (first + i * 3) % 8; // spread around the compass
-            int min = RAY_MIN_LEN + (int) Math.floorMod(
-                    hash(seed, room.cx(), room.cz(), SALT_RAYS + 1 + i), RAY_LEN_RANDOM);
-            // Grow the spoke until it touches the web (capped)
-            int len = min;
-            int x = rayStartX(room, dirsX[dir]), z = rayStartZ(room, dirsZ[dir]);
-            for (int s = min; s < RAY_MAX_REACH; s++) {
-                if (inWeb(x + dirsX[dir] * s, z + dirsZ[dir] * s)) break;
-                len = s + 1;
-            }
-            // Always include one web column past the ray end so capped rays
-            // still merge with the web.
-            out.add(new Ray(dirsX[dir], dirsZ[dir], len + 1, false));
+        java.util.List<DoorHit> hits = new java.util.ArrayList<>(4);
+        for (int d = 0; d < 4; d++) {
+            DoorHit hit = findDoor(centerX, centerZ, half, DOOR_DIRS[d][0], DOOR_DIRS[d][1], d);
+            if (hit != null) hits.add(hit);
         }
+        if (hits.isEmpty()) return null;
+        hits.sort(java.util.Comparator.comparingInt(DoorHit::len).thenComparingInt(DoorHit::dir));
+
+        // The shortest door fixes the room floor; the door floor is flat, so a
+        // second door must land on the same story to stay walkable.
+        int roomH = (hits.get(0).webHalf + 1) & ~1;
+        java.util.List<Door> doors = new java.util.ArrayList<>();
+        for (DoorHit hit : hits) {
+            if (doors.size() >= RAY_COUNT) break;
+            if (Math.abs(hit.webHalf - roomH) > 1) continue;
+            doors.add(new Door(hit.dx, hit.dz, hit.len, false));
+        }
+        if (doors.isEmpty()) return null;
+
+        // A short blind stub on a free side: a dead end, not a spoke.
         if (RAY_BLIND_ONE_IN > 0 && Math.floorMod(h >>> 16, RAY_BLIND_ONE_IN) == 0) {
-            int dir = (first + 1) % 8;
-            out.add(new Ray(dirsX[dir], dirsZ[dir], RAY_BLIND_LEN, true)); // a dead end
+            for (int d = 0; d < 4; d++) {
+                boolean used = false;
+                for (Door door : doors) {
+                    if (door.dx() == DOOR_DIRS[d][0] && door.dz() == DOOR_DIRS[d][1]) used = true;
+                }
+                if (!used) {
+                    doors.add(new Door(DOOR_DIRS[d][0], DOOR_DIRS[d][1], RAY_BLIND_LEN, true));
+                    break;
+                }
+            }
         }
-        return out;
+        int floorY = clampInt(roomH / 2, BASE_FLOOR_Y, MAX_FLOOR_Y);
+        return new Room(cx, cz, centerX, centerZ, size, floorY, java.util.List.copyOf(doors));
     }
 
-    private static int rayStartX(Room room, int dx) {
-        return dx > 0 ? roomMaxX(room) + 1 : dx < 0 ? roomMinX(room) - 1 : room.centerX();
-    }
-
-    private static int rayStartZ(Room room, int dz) {
-        return dz > 0 ? roomMaxZ(room) + 1 : dz < 0 ? roomMinZ(room) - 1 : room.centerZ();
+    /**
+     * Scans outward on one side for the nearest web column. Returns null when
+     * the web is farther than RAY_MAX_REACH. The scan starts at 2 because the
+     * block right outside a room is reserved as its wall.
+     */
+    @Nullable
+    private DoorHit findDoor(int centerX, int centerZ, int half, int dx, int dz, int dir) {
+        for (int o = 2; o <= RAY_MAX_REACH; o++) {
+            int x, z;
+            if (dz == 0) {
+                x = centerX + (dx > 0 ? half + o : -half - o);
+                z = centerZ;
+                if (inWeb(x, z)) return new DoorHit(dx, dz, o, floorHalf(x, z), dir);
+                if (inWeb(x, z + 1)) return new DoorHit(dx, dz, o, floorHalf(x, z + 1), dir);
+            } else {
+                z = centerZ + (dz > 0 ? half + o : -half - o);
+                x = centerX;
+                if (inWeb(x, z)) return new DoorHit(dx, dz, o, floorHalf(x, z), dir);
+                if (inWeb(x + 1, z)) return new DoorHit(dx, dz, o, floorHalf(x + 1, z), dir);
+            }
+        }
+        return null;
     }
 
     // ---- Room types (shared by the generator and the /backrooms room command) ----
