@@ -1,36 +1,46 @@
 package com.advokatbabayki.backrooms;
 
-import java.util.ArrayList;
-import java.util.List;
+import javax.annotation.Nullable;
 
 /**
- * Level 0 route plan: rooms connected by short hallways, a pure function of
- * the seed. Every chunk asks "what runs through me" and all neighbors agree
- * on their shared borders without any cross-chunk state.
+ * Level 0 route plan: an organically growing space, a pure function of the
+ * seed. Every chunk asks "what runs through me" and all neighbors agree on
+ * their shared borders without any cross-chunk state.
  *
- * Layout model:
- * - Every 48x48-block cell hosts one room (11..24 wide, hashed center).
- * - Every cell border carries a hallway link between the two rooms: it
- *   leaves the first room's wall at a hashed offset, turns once inside the
- *   solid mass (an L-jog) and enters the second room at another hashed
- *   offset. Hallways never form a world-spanning grid: each border has its
- *   own attach points.
- * - Every border is linked, so the room graph is a fully connected lattice:
- *   no sealed rooms, no dead ends - every hallway ends inside a room.
- * - Each cell has its own floor height (y 64..88) from slow value noise;
- *   neighbors differ by at most one story (3 blocks), and the hallway ramps
- *   between the rooms in the gap, never touching room interiors.
+ * Model:
+ * - The corridor web is built from two independent value-noise fields: a
+ *   column is carved when either field is near its level set (|f| < w).
+ *   Level sets are endless wandering curves that cross each other and
+ *   themselves, so the web turns, loops and branches without any grid and
+ *   never dead-ends by construction.
+ * - Corridor width breathes with its own noise, and the whole web grows
+ *   denser and wider with distance from the origin: the world starts tight
+ *   and keeps opening up the farther the wanderer goes.
+ * - Rooms are rare flat islands hashed per 48x48 cell (size 8..28, center
+ *   anywhere, no guaranteed exits). Each room pins its floor to the local
+ *   web height and reaches out with several hallway rays; some rays are
+ *   deliberately blind and end in walls (dead ends).
+ * - The floor height itself is one continuous field (y 64..88): it moves in
+ *   half-block steps at most, so every slope is walkable without jumping.
  */
 public final class Level0Plan {
-    public static final int CHUNKS_PER_CELL = 3;                // macro cell = 3x3 chunks
+    public static final int CHUNKS_PER_CELL = 3;                // room placement lattice
     public static final int CELL_BLOCKS = CHUNKS_PER_CELL * 16; // 48
     public static final int BASE_FLOOR_Y = 64;
-    private static final int HEIGHT_STEP = 3;                  // one story
-    private static final int NOISE_SPACING = 12;               // slow: neighbors differ by <= 1 story
-    private static final int NOISE_LEVELS = 9;                 // story 0..8 -> y 64..88
-    private static final long SALT_HEIGHT = 0x1D2545F4914F6CDDL;
-    private static final long SALT_ROOM = 0x2545F4914F6CDD1DL;
-    private static final long SALT_LINK = 0x6CDD1D2545F4914DL;
+    public static final int MAX_FLOOR_Y = 88;
+    private static final int FLOOR_SPACING = 192;               // one story drift per ~2 cells
+    private static final int FLOOR_LEVELS = 9;                 // stories 0..8 -> y 64..88
+    private static final int WEB1_SPACING = 160;               // corridor meander wavelength
+    private static final int WEB2_SPACING = 190;
+    private static final int WEB3_SPACING = 120;               // a denser third field
+    private static final int WIDTH_SPACING = 48;               // width breathing wavelength
+    private static final long SALT_WEB1 = 0x5DEECE66DL;
+    private static final long SALT_WEB2 = 0x1D2545F4914F6CDDL;
+    private static final long SALT_WEB3 = 0x2545F4914F6CDD1D5L;
+    private static final long SALT_WIDTH = 0x6CDD1D2545F4914DL;
+    private static final long SALT_FLOOR = 0x2545F4914F6CDD1DL;
+    private static final long SALT_ROOM = 0x2545F4914F6CDD1D8L;
+    private static final long SALT_RAYS = 0x8D1D4C6CDD2545F4L;
 
     private final long seed;
 
@@ -42,7 +52,7 @@ public final class Level0Plan {
         return seed;
     }
 
-    private static int cellOf(int blockCoord) {
+    public static int cellOf(int blockCoord) {
         return Math.floorDiv(blockCoord, CELL_BLOCKS);
     }
 
@@ -73,44 +83,88 @@ public final class Level0Plan {
         return Math.max(lo, Math.min(hi, v));
     }
 
-    // ---- Height field: one story per cell, slow enough to ramp in the gaps ----
-
-    /**
-     * Floor height of a cell (y 64..88). Quantized value noise, slow enough
-     * that adjacent cells differ by at most one story, so a hallway ramp
-     * (6 blocks) always fits in the gap between the two rooms.
-     */
-    public int cellFloorY(int cx, int cz) {
-        double fx = (double) cx / NOISE_SPACING;
-        double fz = (double) cz / NOISE_SPACING;
+    /** Smooth value noise in [0,1]; lattice corners hashed per seed and salt. */
+    private double noise(double x, double z, int spacing, long salt) {
+        double fx = x / spacing, fz = z / spacing;
         int ix = (int) Math.floor(fx), iz = (int) Math.floor(fz);
         double tx = smooth(fx - ix), tz = smooth(fz - iz);
-        double v00 = corner(ix, iz), v10 = corner(ix + 1, iz);
-        double v01 = corner(ix, iz + 1), v11 = corner(ix + 1, iz + 1);
-        double f = lerp(lerp(v00, v10, tx), lerp(v01, v11, tx), tz);
-        int q = (int) Math.round(f * (NOISE_LEVELS - 1));
-        return BASE_FLOOR_Y + clampInt(q, 0, NOISE_LEVELS - 1) * HEIGHT_STEP;
+        double v00 = corner(ix, iz, salt), v10 = corner(ix + 1, iz, salt);
+        double v01 = corner(ix, iz + 1, salt), v11 = corner(ix + 1, iz + 1, salt);
+        return lerp(lerp(v00, v10, tx), lerp(v01, v11, tx), tz);
     }
 
-    private double corner(int i, int j) {
-        return (hash(seed, i, j, SALT_HEIGHT) >>> 11) / (double) (1L << 53);
+    private double corner(int i, int j, long salt) {
+        return (hash(seed, i, j, salt) >>> 11) / (double) (1L << 53);
     }
 
-    // ---- Rooms ----
-
-    public record Room(int cx, int cz, int centerX, int centerZ, int size) {}
+    // ---- Continuous floor field: y 64..88 in half-block steps ----
 
     /**
-     * The room of a cell. Center is hashed into 18..30 so the widest room
-     * (half 12) never reaches past 42, leaving a >= 5-block wall band around
-     * the cell border for hallway jogs and ramps.
+     * Floor surface of a column in half-block units (128..176), so 0.5-block
+     * steps are exactly representable. The field moves at most one half-step
+     * per block, which keeps every slope walkable without jumping.
      */
+    public int floorHalf(double x, double z) {
+        double q = noise(x, z, FLOOR_SPACING, SALT_FLOOR) * (FLOOR_LEVELS - 1); // stories 0..8
+        return (int) Math.round((BASE_FLOOR_Y + q * 3) * 2);
+    }
+
+    /** Floor surface in whole blocks (for spawn searches and commands). */
+    public int floorSurface(double x, double z) {
+        return (int) Math.round(floorHalf(x, z) / 2.0);
+    }
+
+    // ---- The corridor web ----
+
+    /** How open the world is here: 0 at the origin, 1 far away. */
+    private double openness(double x, double z) {
+        double d = Math.sqrt(x * x + z * z);
+        return smooth(clampInt((int) Math.floor(d / 96.0), 0, 3) / 3.0
+                + smooth(d / 96.0 - Math.floor(d / 96.0)) * 0.0); // smooth ramp over ~288 blocks
+    }
+
+    /** Half-width (in field units) of the web band at this column. */
+    private double webHalfWidth(double x, double z) {
+        double breathe = 0.9 + 1.1 * noise(x, z, WIDTH_SPACING, SALT_WIDTH);
+        double grow = 0.55 + 0.45 * Math.min(1.0, Math.sqrt(x * x + z * z) / 288.0);
+        return 0.045 * breathe * grow;
+    }
+
+    /** True when this column is carved open as part of the corridor web. */
+    public boolean inWeb(double x, double z) {
+        double w = webHalfWidth(x, z);
+        double f1 = noise(x, z, WEB1_SPACING, SALT_WEB1) - 0.5;
+        if (Math.abs(f1) < w) return true;
+        double f2 = noise(x, z, WEB2_SPACING, SALT_WEB2) - 0.5;
+        if (Math.abs(f2) < w) return true;
+        return Math.abs(noise(x, z, WEB3_SPACING, SALT_WEB3) - 0.5) < w * 0.7;
+    }
+
+    // ---- Rooms: rare flat islands on the web ----
+
+    public record Room(int cx, int cz, int centerX, int centerZ, int size, int floorY) {}
+
+    /**
+     * The room of a cell, or null when the cell has none. Rooms are rare and
+     * irregular: presence, size and position are hashed, and cells near the
+     * origin are stricter so the world starts tight and keeps opening up.
+     */
+    @Nullable
     public Room room(int cx, int cz) {
         long h = hash(seed, cx, cz, SALT_ROOM);
-        int size = 11 + (int) Math.floorMod(h, 14); // 11..24
-        int centerX = cellMinBlock(cx) + 18 + (int) Math.floorMod(h >>> 20, 13); // 18..30
-        int centerZ = cellMinBlock(cz) + 18 + (int) Math.floorMod(h >>> 40, 13);
-        return new Room(cx, cz, centerX, centerZ, size);
+        boolean origin = cx == 0 && cz == 0;
+        double dist = Math.sqrt((cellMinBlock(cx) + 24.0) * (cellMinBlock(cx) + 24.0)
+                + (cellMinBlock(cz) + 24.0) * (cellMinBlock(cz) + 24.0));
+        int gate = dist < 240 ? 3 : 5; // stricter near the origin
+        if (!origin && Math.floorMod(h, 8) >= gate) return null;
+
+        int size = 8 + (int) Math.floorMod(h >>> 20, 21); // 8..28
+        int half = size / 2;
+        int centerX = cellMinBlock(cx) + clampInt(6 + (int) Math.floorMod(h >>> 40, 37), half + 2, 46 - half);
+        int centerZ = cellMinBlock(cz) + clampInt(6 + (int) Math.floorMod(h >>> 8, 37), half + 2, 46 - half);
+        // Flat floor pinned to the local web height (rounded to whole blocks)
+        int floorY = clampInt((floorHalf(centerX, centerZ) + 1) / 2, BASE_FLOOR_Y, MAX_FLOOR_Y);
+        return new Room(cx, cz, centerX, centerZ, size, floorY);
     }
 
     /** Room bounds in block coords. */
@@ -118,6 +172,55 @@ public final class Level0Plan {
     public static int roomMaxX(Room r) { return r.centerX + r.size / 2; }
     public static int roomMinZ(Room r) { return r.centerZ - r.size / 2; }
     public static int roomMaxZ(Room r) { return r.centerZ + r.size / 2; }
+
+    // ---- Hallway rays reaching out from a room ----
+
+    /**
+     * One hallway ray: an eight-way direction, a length in blocks, and
+     * whether it is deliberately blind (a dead end in the mass).
+     */
+    public record Ray(int dx, int dz, int len, boolean blind) {}
+
+    /**
+     * Rays of a room: 5 hashed spokes. Each spoke grows from its minimum
+     * length onward until it touches the web (hard cap 72), so every room
+     * is structurally tied into the corridor network; plus a chance of one
+     * blind spoke that stops short and ends in a wall (a dead end).
+     */
+    public java.util.List<Ray> rays(Room room) {
+        java.util.List<Ray> out = new java.util.ArrayList<>();
+        long h = hash(seed, room.cx(), room.cz(), SALT_RAYS);
+        int[] dirsX = {1, 1, 0, -1, -1, -1, 0, 1};
+        int[] dirsZ = {0, 1, 1, 1, 0, -1, -1, -1};
+        int first = (int) Math.floorMod(h, 8);
+        for (int i = 0; i < 5; i++) {
+            int dir = (first + i * 3) % 8; // spread around the compass
+            int min = 14 + (int) Math.floorMod(hash(seed, room.cx(), room.cz(), SALT_RAYS + 1 + i), 18);
+            // Grow the spoke until it touches the web (capped)
+            int len = min;
+            int x = rayStartX(room, dirsX[dir]), z = rayStartZ(room, dirsZ[dir]);
+            for (int s = min; s < 96; s++) {
+                if (inWeb(x + dirsX[dir] * s, z + dirsZ[dir] * s)) break;
+                len = s + 1;
+            }
+            // Always include one web column past the ray end so capped rays
+            // still merge with the web.
+            out.add(new Ray(dirsX[dir], dirsZ[dir], len + 1, false));
+        }
+        if (Math.floorMod(h >>> 16, 4) == 0) {
+            int dir = (first + 1) % 8;
+            out.add(new Ray(dirsX[dir], dirsZ[dir], 8, true)); // a blind dead end
+        }
+        return out;
+    }
+
+    private static int rayStartX(Room room, int dx) {
+        return dx > 0 ? roomMaxX(room) + 1 : dx < 0 ? roomMinX(room) - 1 : room.centerX();
+    }
+
+    private static int rayStartZ(Room room, int dz) {
+        return dz > 0 ? roomMaxZ(room) + 1 : dz < 0 ? roomMinZ(room) - 1 : room.centerZ();
+    }
 
     // ---- Room types (shared by the generator and the /backrooms room command) ----
 
@@ -148,7 +251,8 @@ public final class Level0Plan {
         else if (v < 52) t = ROOM_BLACKOUT;
         else if (v < 62) t = ROOM_TALL;
         else t = 6 + ((v - 62) * 45 + 22) / 38; // 6..50, roughly uniform
-        if (t == ROOM_MEZZANINE && room(cx, cz).size() < 20) t = ROOM_PILLARS;
+        if (t == ROOM_MEZZANINE && room(cx, cz) == null) t = ROOM_PLAIN;
+        else if (t == ROOM_MEZZANINE && room(cx, cz).size() < 20) t = ROOM_PILLARS;
         return t;
     }
 
@@ -163,147 +267,5 @@ public final class Level0Plan {
             case ROOM_TALL -> "TALL";
             default -> "PLAIN";
         };
-    }
-
-    // ---- Hallway links: one per cell border, room wall to room wall ----
-
-    /**
-     * The hallway over the east border of cell (cx,cz): leaves the cell's
-     * room at a hashed z, jogs once inside the solid gap, and enters the
-     * east neighbor's room at another hashed z. Both cells compute the same
-     * geometry because everything is keyed on the western cell's coords.
-     */
-    private record Link(int zOut, int zIn, int jog) {}
-
-    private Link linkEast(int cx, int cz) {
-        Room a = room(cx, cz);
-        Room b = room(cx + 1, cz);
-        int zOut = roomMinZ(a) + 1 + (int) Math.floorMod(hash(seed, cx, cz, SALT_LINK + 1), a.size - 3);
-        int zIn = roomMinZ(b) + 1 + (int) Math.floorMod(hash(seed, cx, cz, SALT_LINK + 2), b.size - 3);
-        // Jog lives strictly west of the ramp band (45..47 local), inside the gap
-        int lo = roomMaxX(a) + 1, hi = cellMinBlock(cx) + 44;
-        int jog = lo + (int) Math.floorMod(hash(seed, cx, cz, SALT_LINK + 3), Math.max(1, hi - lo + 1));
-        return new Link(zOut, zIn, jog);
-    }
-
-    private Link linkSouth(int cx, int cz) {
-        Room a = room(cx, cz);
-        Room b = room(cx, cz + 1);
-        int zOut = roomMinX(a) + 1 + (int) Math.floorMod(hash(seed, cx, cz, SALT_LINK + 4), a.size - 3);
-        int zIn = roomMinX(b) + 1 + (int) Math.floorMod(hash(seed, cx, cz, SALT_LINK + 5), b.size - 3);
-        int lo = roomMaxZ(a) + 1, hi = cellMinBlock(cz) + 44;
-        int jog = lo + (int) Math.floorMod(hash(seed, cx, cz, SALT_LINK + 6), Math.max(1, hi - lo + 1));
-        return new Link(zOut, zIn, jog); // for south links: zOut/zIn are X offsets
-    }
-
-    // ---- Chunk plan ----
-
-    /**
-     * A straight hallway run, clipped to the chunk. Ramp columns carry
-     * rampBase (world position of ramp step 1) and rampDelta (height change
-     * at the border); flat runs have rampDelta = 0.
-     */
-    public record Segment(int kind, int fixed, int from, int to, int levelY,
-            int rampBase, int rampDelta) {}
-
-    public record ChunkPlan(List<Segment> segments, Room room) {}
-
-    public static final int SEG_EW = 0; // runs along X, fixed = center Z
-    public static final int SEG_NS = 1; // runs along Z, fixed = center X
-
-    public ChunkPlan planChunk(int chunkX, int chunkZ) {
-        int baseX = chunkX * 16, baseZ = chunkZ * 16;
-        int cellX = cellOf(baseX), cellZ = cellOf(baseZ);
-        List<Segment> segments = new ArrayList<>();
-
-        // Hallways over the west and east borders
-        addEastLink(segments, baseX, baseZ, cellX - 1, cellZ);
-        addEastLink(segments, baseX, baseZ, cellX, cellZ);
-        // Hallways over the north and south borders
-        addSouthLink(segments, baseX, baseZ, cellX, cellZ - 1);
-        addSouthLink(segments, baseX, baseZ, cellX, cellZ);
-
-        Room room = room(cellX, cellZ);
-        boolean containsRoom = baseX <= roomMaxX(room) && baseX + 15 >= roomMinX(room)
-                && baseZ <= roomMaxZ(room) && baseZ + 15 >= roomMinZ(room);
-        return new ChunkPlan(segments, containsRoom ? room : null);
-    }
-
-    /** Emit the clipped runs of the hallway over the east border of (cx,cz). */
-    private void addEastLink(List<Segment> out, int baseX, int baseZ, int cx, int cz) {
-        Room a = room(cx, cz), b = room(cx + 1, cz);
-        int hA = cellFloorY(cx, cz), hB = cellFloorY(cx + 1, cz);
-        Link link = linkEast(cx, cz);
-        int border = cellMinBlock(cx + 1);
-        int d = hB - hA;
-        int rampBase = d != 0 ? border - Math.abs(d) : Integer.MIN_VALUE;
-        int rampEnd = d != 0 ? rampBase + 2 * Math.abs(d) - 1 : Integer.MIN_VALUE;
-
-        if (link.zOut() == link.zIn()) {
-            addRun(out, SEG_EW, link.zOut(), roomMaxX(a), d != 0 ? rampBase - 1 : roomMinX(b), hA, baseX, baseZ);
-        } else {
-            addRun(out, SEG_EW, link.zOut(), roomMaxX(a), link.jog(), hA, baseX, baseZ);
-            addRun(out, SEG_NS, link.jog(), Math.min(link.zOut(), link.zIn()), Math.max(link.zOut(), link.zIn()), hA, baseX, baseZ);
-            addRun(out, SEG_EW, link.zIn(), link.jog(), d != 0 ? rampBase - 1 : roomMinX(b), hA, baseX, baseZ);
-        }
-        if (d != 0) {
-            addRamp(out, SEG_EW, link.zIn(), rampBase, rampEnd, hA, d, baseX, baseZ);
-            addRun(out, SEG_EW, link.zIn(), rampEnd + 1, roomMinX(b), hB, baseX, baseZ);
-        }
-    }
-
-    /** Emit the clipped runs of the hallway over the south border of (cx,cz). */
-    private void addSouthLink(List<Segment> out, int baseX, int baseZ, int cx, int cz) {
-        Room a = room(cx, cz), b = room(cx, cz + 1);
-        int hA = cellFloorY(cx, cz), hB = cellFloorY(cx, cz + 1);
-        Link link = linkSouth(cx, cz);
-        int border = cellMinBlock(cz + 1);
-        int d = hB - hA;
-        int rampBase = d != 0 ? border - Math.abs(d) : Integer.MIN_VALUE;
-        int rampEnd = d != 0 ? rampBase + 2 * Math.abs(d) - 1 : Integer.MIN_VALUE;
-
-        if (link.zOut() == link.zIn()) {
-            addRun(out, SEG_NS, link.zOut(), roomMaxZ(a), d != 0 ? rampBase - 1 : roomMinZ(b), hA, baseX, baseZ);
-        } else {
-            addRun(out, SEG_NS, link.zOut(), roomMaxZ(a), link.jog(), hA, baseX, baseZ);
-            addRun(out, SEG_EW, link.jog(), Math.min(link.zOut(), link.zIn()), Math.max(link.zOut(), link.zIn()), hA, baseX, baseZ);
-            addRun(out, SEG_NS, link.zIn(), link.jog(), d != 0 ? rampBase - 1 : roomMinZ(b), hA, baseX, baseZ);
-        }
-        if (d != 0) {
-            addRamp(out, SEG_NS, link.zIn(), rampBase, rampEnd, hA, d, baseX, baseZ);
-            addRun(out, SEG_NS, link.zIn(), rampEnd + 1, roomMinZ(b), hB, baseX, baseZ);
-        }
-    }
-
-    /** A flat 3-wide run, clipped to the chunk. */
-    private void addRun(List<Segment> out, int kind, int fixed, int from, int to, int levelY,
-            int baseX, int baseZ) {
-        if (kind == SEG_EW) {
-            int lo = Math.max(from, baseX), hi = Math.min(to, baseX + 15);
-            if (lo <= hi && fixed + 1 >= baseZ && fixed - 1 <= baseZ + 15) {
-                out.add(new Segment(SEG_EW, fixed, lo, hi, levelY, Integer.MIN_VALUE, 0));
-            }
-        } else {
-            int lo = Math.max(from, baseZ), hi = Math.min(to, baseZ + 15);
-            if (lo <= hi && fixed + 1 >= baseX && fixed - 1 <= baseX + 15) {
-                out.add(new Segment(SEG_NS, fixed, lo, hi, levelY, Integer.MIN_VALUE, 0));
-            }
-        }
-    }
-
-    /** A ramp run: 2*|delta| columns of half-steps, clipped to the chunk. */
-    private void addRamp(List<Segment> out, int kind, int fixed, int rampBase, int rampEnd,
-            int levelY, int delta, int baseX, int baseZ) {
-        if (kind == SEG_EW) {
-            int lo = Math.max(rampBase, baseX), hi = Math.min(rampEnd, baseX + 15);
-            if (lo <= hi && fixed + 1 >= baseZ && fixed - 1 <= baseZ + 15) {
-                out.add(new Segment(SEG_EW, fixed, lo, hi, levelY, rampBase, delta));
-            }
-        } else {
-            int lo = Math.max(rampBase, baseZ), hi = Math.min(rampEnd, baseZ + 15);
-            if (lo <= hi && fixed + 1 >= baseX && fixed - 1 <= baseX + 15) {
-                out.add(new Segment(SEG_NS, fixed, lo, hi, levelY, rampBase, delta));
-            }
-        }
     }
 }

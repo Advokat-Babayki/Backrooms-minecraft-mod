@@ -50,12 +50,14 @@ public final class BackroomsCommands {
             return 0;
         }
         RETURN_POINTS.put(player.getUUID(), new ReturnPoint(player.level().dimension(), player.getX(), player.getY(), player.getZ()));
-        // Same maze_seed the dimension JSON uses. The entry room is centered on
-        // the route crossing, so the landing spot is always open carved floor.
+        // Same maze_seed the dimension JSON uses. The entry room is a forced
+        // room island pinned to the local web height: the landing spot is
+        // always open carved floor.
         Level0Plan plan = new Level0Plan(0L);
         Level0Plan.Room entry = plan.room(0, 0);
-        player.teleportTo(level0, entry.centerX() + 0.5, plan.cellFloorY(0, 0) + 1.0,
-                entry.centerZ() + 0.5, player.getYRot(), player.getXRot());
+        int floorY = entry != null ? entry.floorY() : plan.floorSurface(24, 24);
+        player.teleportTo(level0, (entry != null ? entry.centerX() : 24) + 0.5, floorY + 1.0,
+                (entry != null ? entry.centerZ() : 24) + 0.5, player.getYRot(), player.getXRot());
         source.sendSuccess(() -> Component.literal("You noclipped into the Backrooms. Mind the hum."), false);
         return Command.SINGLE_SUCCESS;
     }
@@ -72,6 +74,13 @@ public final class BackroomsCommands {
         int cx = Math.floorDiv(bx, Level0Plan.CELL_BLOCKS);
         int cz = Math.floorDiv(bz, Level0Plan.CELL_BLOCKS);
         Level0Plan.Room room = plan.room(cx, cz);
+        if (room == null) {
+            int floor = plan.floorSurface(bx, bz);
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "Ты в паутине коридоров, ячейка [%d, %d], пол y=%d. Комнаты в этой ячейке нет.",
+                    cx, cz, floor)), false);
+            return Command.SINGLE_SUCCESS;
+        }
         boolean inside = bx >= Level0Plan.roomMinX(room) && bx <= Level0Plan.roomMaxX(room)
                 && bz >= Level0Plan.roomMinZ(room) && bz <= Level0Plan.roomMaxZ(room);
         int type = plan.roomType(cx, cz);
@@ -87,7 +96,7 @@ public final class BackroomsCommands {
         source.sendSuccess(() -> Component.literal(String.format(
                 "%s [%d, %d]: %s · размер %d · центр x=%d z=%d · пол y=%d",
                 place, cx, cz, typeName, room.size(), room.centerX(), room.centerZ(),
-                plan.cellFloorY(cx, cz))), false);
+                room.floorY())), false);
         return Command.SINGLE_SUCCESS;
     }
 
