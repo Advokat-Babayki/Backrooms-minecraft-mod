@@ -39,7 +39,7 @@
     jitter: 20,
     streetWidthMax: 7,
     segmentChance: 65,
-    blockChance: 86,
+    blockChance: 100,
     maxRooms: 3,
     doorWidth: 3,
     wideOpening: 6,

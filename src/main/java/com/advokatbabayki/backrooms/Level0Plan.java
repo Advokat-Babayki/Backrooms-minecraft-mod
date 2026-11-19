@@ -22,7 +22,7 @@ public final class Level0Plan {
     public static final int JITTER = 20;
     public static final int STREET_WIDTH_MAX = 7;
     public static final int SEGMENT_CHANCE = 65;
-    public static final int BLOCK_CHANCE = 86;
+    public static final int BLOCK_CHANCE = 100;
     public static final int MAX_ROOMS = 3;
     public static final int DOOR_WIDTH = 3;
     public static final int WIDE_OPENING = 6;
