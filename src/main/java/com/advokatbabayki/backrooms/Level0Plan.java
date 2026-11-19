@@ -2,7 +2,6 @@ package com.advokatbabayki.backrooms;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 
 /**
  * Level 0 route plan: the maze is built around an invisible "virtual route".
@@ -98,41 +97,25 @@ public final class Level0Plan {
         return (hash(seed, i, j, SALT_HEIGHT) >>> 11) / (double) (1L << 53);
     }
 
-    // ---- Route lines: one weaving line per cell row / cell column ----
+    // ---- Route lines: one straight line per cell row / cell column ----
 
     /**
-     * Band anchor of a row's east-west line at a world 16-block column.
-     * The middle column of every cell is pinned to 24 so the line is
-     * guaranteed to pass through each cell's center region (and each room).
+     * World z of the east-west line of cell row cz: a straight hallway at a
+     * fixed offset inside the row, running the whole width of the world.
+     * Straight lines give the level its endless-office look; rooms anchor on
+     * the crossings of the row and column lines.
      */
-    private int anchorEW(int cz, int colX) {
-        if (Math.floorMod(colX, CHUNKS_PER_CELL) == 1) return 24;
-        return BAND_LO + (int) Math.floorMod(hash(seed, cz, colX, SALT_LINES + 2),
+    public int lineZ(int cz) {
+        int offset = BAND_LO + (int) Math.floorMod(hash(seed, cz, 0, SALT_LINES + 2),
                 BAND_HI - BAND_LO + 1);
+        return cellMinBlock(cz) + offset;
     }
 
-    private int anchorNS(int cx, int colZ) {
-        if (Math.floorMod(colZ, CHUNKS_PER_CELL) == 1) return 24;
-        return BAND_LO + (int) Math.floorMod(hash(seed, cx, colZ, SALT_LINES + 3),
+    /** World x of the north-south line of cell column cx. Straight, like lineZ. */
+    public int lineX(int cx) {
+        int offset = BAND_LO + (int) Math.floorMod(hash(seed, 0, cx, SALT_LINES + 3),
                 BAND_HI - BAND_LO + 1);
-    }
-
-    /** World z of the east-west line of cell row cz at world x. Pure in x. */
-    public int lineZ(int cz, int x) {
-        int col = Math.floorDiv(x, 16);
-        double t = smooth((x - col * 16) / 16.0);
-        int z = clampInt((int) Math.round(lerp(anchorEW(cz, col), anchorEW(cz, col + 1), t)),
-                BAND_LO, BAND_HI);
-        return cellMinBlock(cz) + z;
-    }
-
-    /** World x of the north-south line of cell column cx at world z. Pure in z. */
-    public int lineX(int cx, int z) {
-        int col = Math.floorDiv(z, 16);
-        double t = smooth((z - col * 16) / 16.0);
-        int x = clampInt((int) Math.round(lerp(anchorNS(cx, col), anchorNS(cx, col + 1), t)),
-                BAND_LO, BAND_HI);
-        return cellMinBlock(cx) + x;
+        return cellMinBlock(cx) + offset;
     }
 
     // ---- Rooms: anchored on the route's crossing region ----
@@ -140,17 +123,60 @@ public final class Level0Plan {
     public record Room(int cx, int cz, int centerX, int centerZ, int size) {}
 
     /**
-     * The room of a cell. Big rooms sit on the cell center, exactly where both
-     * route lines pass; small rooms sit on the corner region that both lines
-     * are pinned to enter (16..24 x 16..24 cell-local), so every room is
-     * always crossed by corridors and can never seal a player in.
+     * The room of a cell, centered on the crossing of the two straight lines,
+     * clamped into the safe middle band. The crossing always lands inside the
+     * room: line offsets are 12..35, the clamp window is 16..32, so the drift
+     * is at most 4 blocks - less than the smallest half-size (5).
      */
     public Room room(int cx, int cz) {
-        long h = hash(seed, cx, cz, SALT_ROOM);
-        Random r = new Random(h);
-        int size = 11 + r.nextInt(14); // 11..24: rooms dominate their cell
-        int c = size >= 16 ? 24 : 20;
-        return new Room(cx, cz, cellMinBlock(cx) + c, cellMinBlock(cz) + c, size);
+        int crossX = lineX(cx), crossZ = lineZ(cz);
+        int centerX = clampInt(crossX, cellMinBlock(cx) + 16, cellMinBlock(cx) + 32);
+        int centerZ = clampInt(crossZ, cellMinBlock(cz) + 16, cellMinBlock(cz) + 32);
+        int size = 11 + (int) Math.floorMod(hash(seed, cx, cz, SALT_ROOM + 1), 14); // 11..24
+        return new Room(cx, cz, centerX, centerZ, size);
+    }
+
+    // ---- Room types (shared by the generator and the /backrooms room command) ----
+
+    public static final int ROOM_PLAIN = 0;
+    public static final int ROOM_PILLARS = 1;
+    public static final int ROOM_MEZZANINE = 2;
+    public static final int ROOM_HOLES = 3;
+    public static final int ROOM_BLACKOUT = 4;
+    public static final int ROOM_TALL = 5;
+
+    /**
+     * Deterministic room archetype of a cell. A mezzanine needs an 8-step
+     * staircase, so rooms too small for it fall back to pillars.
+     */
+    public int roomType(int cx, int cz) {
+        long h = (cx * 0x9E3779B97F4A7C15L) ^ (cz * 0xBF58476D1CE4E5B9L);
+        h ^= h >>> 29;
+        h *= 0x94D049BB133111EBL;
+        h ^= h >>> 32;
+        int v = (int) Math.floorMod(h, 100);
+        int t;
+        if (v < 25) t = ROOM_PLAIN;
+        else if (v < 45) t = ROOM_PILLARS;
+        else if (v < 60) t = ROOM_MEZZANINE;
+        else if (v < 75) t = ROOM_HOLES;
+        else if (v < 85) t = ROOM_BLACKOUT;
+        else t = ROOM_TALL;
+        if (t == ROOM_MEZZANINE && room(cx, cz).size() < 20) t = ROOM_PILLARS;
+        return t;
+    }
+
+    /** Short machine-readable name of a room archetype. */
+    public static String roomTypeName(int type) {
+        return switch (type) {
+            case ROOM_PLAIN -> "PLAIN";
+            case ROOM_PILLARS -> "PILLARS";
+            case ROOM_MEZZANINE -> "MEZZANINE";
+            case ROOM_HOLES -> "HOLES";
+            case ROOM_BLACKOUT -> "BLACKOUT";
+            case ROOM_TALL -> "TALL";
+            default -> "PLAIN";
+        };
     }
 
     /** Room bounds in block coords. */
@@ -173,47 +199,21 @@ public final class Level0Plan {
         int levelY = cellFloorY(cellX, cellZ);
         List<Segment> segments = new ArrayList<>();
 
-        // East-west line of this cell row: one segment per constant-z run.
-        int runStart = baseX;
-        int runZ = lineZ(cellZ, baseX);
-        for (int x = baseX + 1; x <= baseX + 15; x++) {
-            int z = lineZ(cellZ, x);
-            if (z != runZ) {
-                addEW(segments, baseZ, runStart, x - 1, runZ, levelY, cellX, cellZ);
-                runStart = x;
-                runZ = z;
-            }
+        // Straight east-west line of this cell row
+        int zLine = lineZ(cellZ);
+        if (zLine + 1 >= baseZ && zLine - 1 <= baseZ + 15) {
+            segments.add(new Segment(SEG_EW, zLine, baseX, baseX + 15, levelY, cellX, cellZ));
         }
-        addEW(segments, baseZ, runStart, baseX + 15, runZ, levelY, cellX, cellZ);
 
-        // North-south line of this cell column: one segment per constant-x run.
-        runStart = baseZ;
-        int runX = lineX(cellX, baseZ);
-        for (int z = baseZ + 1; z <= baseZ + 15; z++) {
-            int x = lineX(cellX, z);
-            if (x != runX) {
-                addNS(segments, baseX, runStart, z - 1, runX, levelY, cellX, cellZ);
-                runStart = z;
-                runX = x;
-            }
+        // Straight north-south line of this cell column
+        int xLine = lineX(cellX);
+        if (xLine + 1 >= baseX && xLine - 1 <= baseX + 15) {
+            segments.add(new Segment(SEG_NS, xLine, baseZ, baseZ + 15, levelY, cellX, cellZ));
         }
-        addNS(segments, baseX, runStart, baseZ + 15, runX, levelY, cellX, cellZ);
 
         Room room = room(cellX, cellZ);
         boolean containsRoom = baseX <= roomMaxX(room) && baseX + 15 >= roomMinX(room)
                 && baseZ <= roomMaxZ(room) && baseZ + 15 >= roomMinZ(room);
         return new ChunkPlan(segments, containsRoom ? room : null);
-    }
-
-    private static void addEW(List<Segment> out, int baseZ, int fromX, int toX, int z,
-            int levelY, int cx, int cz) {
-        if (z + 1 < baseZ || z - 1 > baseZ + 15) return; // band misses this chunk
-        out.add(new Segment(SEG_EW, z, fromX, toX, levelY, cx, cz));
-    }
-
-    private static void addNS(List<Segment> out, int baseX, int fromZ, int toZ, int x,
-            int levelY, int cx, int cz) {
-        if (x + 1 < baseX || x - 1 > baseX + 15) return;
-        out.add(new Segment(SEG_NS, x, fromZ, toZ, levelY, cx, cz));
     }
 }

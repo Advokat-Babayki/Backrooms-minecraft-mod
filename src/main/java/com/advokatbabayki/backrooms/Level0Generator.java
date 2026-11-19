@@ -51,14 +51,6 @@ public class Level0Generator extends ChunkGenerator {
     private static final int LIGHT_EVERY = 6;
     private static final int CORRIDOR_HALF = 1; // 3-wide route bands
 
-    // Room archetypes
-    private static final int ROOM_PLAIN = 0;
-    private static final int ROOM_PILLARS = 1;
-    private static final int ROOM_MEZZANINE = 2;
-    private static final int ROOM_HOLES = 3;
-    private static final int ROOM_BLACKOUT = 4;
-    private static final int ROOM_TALL = 5;
-
     private final Level0Plan plan;
 
     public Level0Generator(BiomeSource biomeSource, long seed) {
@@ -193,9 +185,9 @@ public class Level0Generator extends ChunkGenerator {
             BlockState carpet, BlockState ceilingTile, BlockState light, BlockState air,
             BlockState slabBottom, BlockState slabTop) {
         int h = plan.cellFloorY(room.cx(), room.cz());
-        int type = pickRoomType(room.cx(), room.cz());
-        if (type == ROOM_MEZZANINE && room.size() < 20) type = ROOM_PILLARS; // needs ramp space
-        boolean tall = type == ROOM_PILLARS || type == ROOM_MEZZANINE || type == ROOM_TALL;
+        int type = plan.roomType(room.cx(), room.cz());
+        boolean tall = type == Level0Plan.ROOM_PILLARS || type == Level0Plan.ROOM_MEZZANINE
+                || type == Level0Plan.ROOM_TALL;
         int ceil = tall ? h + 16 : h + 4;
 
         int rMinX = Math.max(baseX, Level0Plan.roomMinX(room));
@@ -216,10 +208,10 @@ public class Level0Generator extends ChunkGenerator {
 
         // Interior features
         switch (type) {
-            case ROOM_PILLARS -> carvePillars(chunk, plan, room, baseX, baseZ, rMinX, rMaxX, rMinZ, rMaxZ, h);
-            case ROOM_MEZZANINE -> carveMezzanine(chunk, plan, room, baseX, baseZ, rMinX, rMaxX, rMinZ, rMaxZ, h,
+            case Level0Plan.ROOM_PILLARS -> carvePillars(chunk, plan, room, baseX, baseZ, rMinX, rMaxX, rMinZ, rMaxZ, h);
+            case Level0Plan.ROOM_MEZZANINE -> carveMezzanine(chunk, plan, room, baseX, baseZ, rMinX, rMaxX, rMinZ, rMaxZ, h,
                     carpet, slabBottom);
-            case ROOM_HOLES -> carveHoles(chunk, room, baseX, baseZ, rMinX, rMaxX, rMinZ, rMaxZ, h,
+            case Level0Plan.ROOM_HOLES -> carveHoles(chunk, room, baseX, baseZ, rMinX, rMaxX, rMinZ, rMaxZ, h,
                     air, slabBottom, slabTop);
             default -> { /* plain, blackout and tall halls stay empty */ }
         }
@@ -227,7 +219,7 @@ public class Level0Generator extends ChunkGenerator {
         // Ceiling with lights (blackout rooms stay dark)
         for (int x = rMinX; x <= rMaxX; x++) {
             for (int z = rMinZ; z <= rMaxZ; z++) {
-                BlockState state = type != ROOM_BLACKOUT
+                BlockState state = type != Level0Plan.ROOM_BLACKOUT
                         && (x - baseX) % LIGHT_EVERY == 3 && (z - baseZ) % LIGHT_EVERY == 3
                         ? light : ceilingTile;
                 chunk.setBlockState(new BlockPos(x, ceil, z), state, false);
@@ -236,17 +228,19 @@ public class Level0Generator extends ChunkGenerator {
     }
 
     /**
-     * Pillar forest. Pillars never stand on the route bands (the lines pass
-     * between them) and never on the room center (the /backrooms entry point).
+     * Pillar forest. Pillars never stand on the straight route lines (the
+     * lines pass between them) and never on the room center (the entry point).
      */
     private void carvePillars(ChunkAccess chunk, Level0Plan plan, Level0Plan.Room room,
             int baseX, int baseZ, int rMinX, int rMaxX, int rMinZ, int rMaxZ, int h) {
         BlockState wallpaper = BackroomsBlocks.YELLOW_WALLPAPER.get().defaultBlockState();
+        int lineZ = plan.lineZ(room.cz());
+        int lineX = plan.lineX(room.cx());
         for (int x = rMinX + 2; x <= rMaxX - 2; x += 3) {
             for (int z = rMinZ + 2; z <= rMaxZ - 2; z += 3) {
                 if (x < baseX || x > baseX + 15 || z < baseZ || z > baseZ + 15) continue;
-                boolean onEWLine = Math.abs(z - plan.lineZ(room.cz(), x)) <= 2;
-                boolean onNSLine = Math.abs(x - plan.lineX(room.cx(), z)) <= 2;
+                boolean onEWLine = Math.abs(z - lineZ) <= 2;
+                boolean onNSLine = Math.abs(x - lineX) <= 2;
                 boolean atCenter = Math.abs(x - room.centerX()) <= 2 && Math.abs(z - room.centerZ()) <= 2;
                 if (onEWLine || onNSLine || atCenter) continue;
                 for (int y = h + 1; y <= h + 15; y++) {
@@ -265,8 +259,8 @@ public class Level0Generator extends ChunkGenerator {
             int baseX, int baseZ, int rMinX, int rMaxX, int rMinZ, int rMaxZ, int h,
             BlockState carpet, BlockState slabBottom) {
         int half = room.size() / 2;
-        int sx = plan.lineX(room.cx(), room.centerZ()) > room.centerX() ? -1 : 1;
-        int sz = plan.lineZ(room.cz(), room.centerX()) > room.centerZ() ? -1 : 1;
+        int sx = plan.lineX(room.cx()) > room.centerX() ? -1 : 1;
+        int sz = plan.lineZ(room.cz()) > room.centerZ() ? -1 : 1;
 
         // Deck: corner block layer at h+4
         int dX1 = Math.min(room.centerX() + sx * 3, room.centerX() + sx * (half - 2));
@@ -334,20 +328,6 @@ public class Level0Generator extends ChunkGenerator {
         h *= 0x165667B19E3779F9L;
         h ^= h >>> 32;
         return h;
-    }
-
-    private static int pickRoomType(int cx, int cz) {
-        long h = (cx * 0x9E3779B97F4A7C15L) ^ (cz * 0xBF58476D1CE4E5B9L);
-        h ^= h >>> 29;
-        h *= 0x94D049BB133111EBL;
-        h ^= h >>> 32;
-        int v = (int) Math.floorMod(h, 100);
-        if (v < 25) return ROOM_PLAIN;
-        if (v < 45) return ROOM_PILLARS;
-        if (v < 60) return ROOM_MEZZANINE;
-        if (v < 75) return ROOM_HOLES;
-        if (v < 85) return ROOM_BLACKOUT;
-        return ROOM_TALL;
     }
 
     @Override

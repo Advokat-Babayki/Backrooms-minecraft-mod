@@ -15,6 +15,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
@@ -37,7 +38,8 @@ public final class BackroomsCommands {
     static void onRegisterCommands(RegisterCommandsEvent event) {
         event.getDispatcher().register(Commands.literal("backrooms")
                 .then(Commands.literal("enter").executes(ctx -> enter(ctx.getSource())))
-                .then(Commands.literal("leave").executes(ctx -> leave(ctx.getSource()))));
+                .then(Commands.literal("leave").executes(ctx -> leave(ctx.getSource())))
+                .then(Commands.literal("room").executes(ctx -> whereRoom(ctx.getSource()))));
     }
 
     private static int enter(CommandSourceStack source) throws CommandSyntaxException {
@@ -55,6 +57,37 @@ public final class BackroomsCommands {
         player.teleportTo(level0, entry.centerX() + 0.5, plan.cellFloorY(0, 0) + 1.0,
                 entry.centerZ() + 0.5, player.getYRot(), player.getXRot());
         source.sendSuccess(() -> Component.literal("You noclipped into the Backrooms. Mind the hum."), false);
+        return Command.SINGLE_SUCCESS;
+    }
+
+    /**
+     * Dev helper: report which room (type, cell, size, center, floor) the
+     * player stands in, so generation feedback can name the exact room.
+     */
+    private static int whereRoom(CommandSourceStack source) throws CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
+        Level0Plan plan = new Level0Plan(0L);
+        int bx = Mth.floor(player.getX());
+        int bz = Mth.floor(player.getZ());
+        int cx = Math.floorDiv(bx, Level0Plan.CELL_BLOCKS);
+        int cz = Math.floorDiv(bz, Level0Plan.CELL_BLOCKS);
+        Level0Plan.Room room = plan.room(cx, cz);
+        boolean inside = bx >= Level0Plan.roomMinX(room) && bx <= Level0Plan.roomMaxX(room)
+                && bz >= Level0Plan.roomMinZ(room) && bz <= Level0Plan.roomMaxZ(room);
+        int type = plan.roomType(cx, cz);
+        String typeName = switch (type) {
+            case Level0Plan.ROOM_PILLARS -> "PILLARS (колонны)";
+            case Level0Plan.ROOM_MEZZANINE -> "MEZZANINE (мезонин)";
+            case Level0Plan.ROOM_HOLES -> "HOLES (проломы в полу)";
+            case Level0Plan.ROOM_BLACKOUT -> "BLACKOUT (тёмная)";
+            case Level0Plan.ROOM_TALL -> "TALL (огромный ангар)";
+            default -> "PLAIN (пустая)";
+        };
+        String place = inside ? "Ты в комнате" : "Ты в коридоре; комната ячейки";
+        source.sendSuccess(() -> Component.literal(String.format(
+                "%s [%d, %d]: %s · размер %d · центр x=%d z=%d · пол y=%d",
+                place, cx, cz, typeName, room.size(), room.centerX(), room.centerZ(),
+                plan.cellFloorY(cx, cz))), false);
         return Command.SINGLE_SUCCESS;
     }
 
