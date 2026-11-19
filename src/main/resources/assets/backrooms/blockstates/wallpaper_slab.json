@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "type=bottom": { "model": "backrooms:block/wallpaper_slab" },
+    "type=top": { "model": "backrooms:block/wallpaper_slab_top" },
+    "type=double": { "model": "backrooms:block/yellow_wallpaper" }
+  }
+}

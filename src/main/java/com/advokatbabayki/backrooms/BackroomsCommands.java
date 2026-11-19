@@ -48,7 +48,12 @@ public final class BackroomsCommands {
             return 0;
         }
         RETURN_POINTS.put(player.getUUID(), new ReturnPoint(player.level().dimension(), player.getX(), player.getY(), player.getZ()));
-        player.teleportTo(level0, 8.5, 65.0, 8.5, player.getYRot(), player.getXRot());
+        // Same maze_seed the dimension JSON uses. The entry room is centered on
+        // the route crossing, so the landing spot is always open carved floor.
+        Level0Plan plan = new Level0Plan(0L);
+        Level0Plan.Room entry = plan.room(0, 0);
+        player.teleportTo(level0, entry.centerX() + 0.5, plan.cellFloorY(0, 0) + 1.0,
+                entry.centerZ() + 0.5, player.getYRot(), player.getXRot());
         source.sendSuccess(() -> Component.literal("You noclipped into the Backrooms. Mind the hum."), false);
         return Command.SINGLE_SUCCESS;
     }
