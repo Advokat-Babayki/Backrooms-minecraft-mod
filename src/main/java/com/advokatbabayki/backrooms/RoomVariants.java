@@ -75,7 +75,7 @@ final class RoomVariants {
     static void carve(ChunkAccess chunk, ChunkPos pos, Level0Plan plan, Level0Plan.Room room,
             int type, BlockState carpet, BlockState wallpaper, BlockState ceilingTile,
             BlockState light, BlockState air, BlockState slabBottom, BlockState slabTop) {
-        int h = plan.cellFloorY(room.cx(), room.cz());
+        int h = room.floorY(); // room floor is pinned flat for the variants
         RandomSource r = RandomSource.create(hashRoom(room.cx(), room.cz(), type * 0x9E37L + 7));
         int cX = room.centerX(), cZ = room.centerZ();
         int mnx = Level0Plan.roomMinX(room) + 2, mxx = Level0Plan.roomMaxX(room) - 2;
