@@ -28,12 +28,36 @@ public final class Level0Plan {
     public static final int CELL_BLOCKS = CHUNKS_PER_CELL * 16; // 48
     public static final int BASE_FLOOR_Y = 64;
     public static final int MAX_FLOOR_Y = 88;
-    private static final int FLOOR_SPACING = 192;               // one story drift per ~2 cells
-    private static final int FLOOR_LEVELS = 9;                 // stories 0..8 -> y 64..88
-    private static final int WEB1_SPACING = 160;               // corridor meander wavelength
-    private static final int WEB2_SPACING = 190;
-    private static final int WEB3_SPACING = 120;               // a denser third field
-    private static final int WIDTH_SPACING = 48;               // width breathing wavelength
+
+    // ---- Tunables ----
+    // The same knobs live in tools/level0-preview (defaults must match).
+    // Tune there, then apply the exported config here.
+    public static final int WEB1_SPACING = 160;                // corridor meander wavelength
+    public static final int WEB2_SPACING = 190;
+    public static final int WEB3_SPACING = 120;                // a denser third field
+    public static final double WEB3_WIDTH_FACTOR = 0.7;
+    public static final double WIDTH_BASE = 0.045;
+    public static final double WIDTH_BREATH_MIN = 0.9;
+    public static final double WIDTH_BREATH_RANGE = 1.1;
+    public static final double WIDTH_GROW_MIN = 0.55;
+    public static final double WIDTH_GROW_MAX = 1.0;
+    public static final double GROW_DISTANCE = 288.0;
+    public static final int FLOOR_SPACING = 192;               // one story drift per ~2 cells
+    public static final int FLOOR_LEVELS = 9;                  // stories 0..8 -> y 64..88
+    public static final int ROOM_NEAR_GATE = 3;                // presence out of 8 cells
+    public static final int ROOM_FAR_GATE = 5;
+    public static final double ROOM_NEAR_RADIUS = 240.0;
+    public static final int ROOM_SIZE_MIN = 8;
+    public static final int ROOM_SIZE_RANDOM = 21;
+    public static final int ROOM_MAX_SIZE = 40;
+    public static final int RAY_COUNT = 5;
+    public static final int RAY_MIN_LEN = 14;
+    public static final int RAY_LEN_RANDOM = 18;
+    public static final int RAY_MAX_REACH = 96;
+    public static final int RAY_BLIND_ONE_IN = 4;              // 0 = no blind rays
+    public static final int RAY_BLIND_LEN = 8;
+
+    public static final int WIDTH_SPACING = 48;               // width breathing wavelength
     private static final long SALT_WEB1 = 0x5DEECE66DL;
     private static final long SALT_WEB2 = 0x1D2545F4914F6CDDL;
     private static final long SALT_WEB3 = 0x2545F4914F6CDDL;
@@ -117,18 +141,14 @@ public final class Level0Plan {
 
     // ---- The corridor web ----
 
-    /** How open the world is here: 0 at the origin, 1 far away. */
-    private double openness(double x, double z) {
-        double d = Math.sqrt(x * x + z * z);
-        return smooth(clampInt((int) Math.floor(d / 96.0), 0, 3) / 3.0
-                + smooth(d / 96.0 - Math.floor(d / 96.0)) * 0.0); // smooth ramp over ~288 blocks
-    }
-
     /** Half-width (in field units) of the web band at this column. */
     private double webHalfWidth(double x, double z) {
-        double breathe = 0.9 + 1.1 * noise(x, z, WIDTH_SPACING, SALT_WIDTH);
-        double grow = 0.55 + 0.45 * Math.min(1.0, Math.sqrt(x * x + z * z) / 288.0);
-        return 0.045 * breathe * grow;
+        double breathe = WIDTH_BREATH_MIN + WIDTH_BREATH_RANGE
+                * noise(x, z, WIDTH_SPACING, SALT_WIDTH);
+        double ramp = GROW_DISTANCE > 0
+                ? Math.min(1.0, Math.sqrt(x * x + z * z) / GROW_DISTANCE) : 1.0;
+        double grow = WIDTH_GROW_MIN + (WIDTH_GROW_MAX - WIDTH_GROW_MIN) * ramp;
+        return WIDTH_BASE * breathe * grow;
     }
 
     /** True when this column is carved open as part of the corridor web. */
@@ -138,7 +158,7 @@ public final class Level0Plan {
         if (Math.abs(f1) < w) return true;
         double f2 = noise(x, z, WEB2_SPACING, SALT_WEB2) - 0.5;
         if (Math.abs(f2) < w) return true;
-        return Math.abs(noise(x, z, WEB3_SPACING, SALT_WEB3) - 0.5) < w * 0.7;
+        return Math.abs(noise(x, z, WEB3_SPACING, SALT_WEB3) - 0.5) < w * WEB3_WIDTH_FACTOR;
     }
 
     // ---- Rooms: rare flat islands on the web ----
@@ -156,10 +176,11 @@ public final class Level0Plan {
         boolean origin = cx == 0 && cz == 0;
         double dist = Math.sqrt((cellMinBlock(cx) + 24.0) * (cellMinBlock(cx) + 24.0)
                 + (cellMinBlock(cz) + 24.0) * (cellMinBlock(cz) + 24.0));
-        int gate = dist < 240 ? 3 : 5; // stricter near the origin
+        int gate = dist < ROOM_NEAR_RADIUS ? ROOM_NEAR_GATE : ROOM_FAR_GATE;
         if (!origin && Math.floorMod(h, 8) >= gate) return null;
 
-        int size = 8 + (int) Math.floorMod(h >>> 20, 21); // 8..28
+        int size = Math.min(ROOM_SIZE_MIN + (int) Math.floorMod(h >>> 20, ROOM_SIZE_RANDOM),
+                ROOM_MAX_SIZE);
         int half = size / 2;
         int centerX = cellMinBlock(cx) + clampInt(6 + (int) Math.floorMod(h >>> 40, 37), half + 2, 46 - half);
         int centerZ = cellMinBlock(cz) + clampInt(6 + (int) Math.floorMod(h >>> 8, 37), half + 2, 46 - half);
@@ -183,10 +204,11 @@ public final class Level0Plan {
     public record Ray(int dx, int dz, int len, boolean blind) {}
 
     /**
-     * Rays of a room: 5 hashed spokes. Each spoke grows from its minimum
-     * length onward until it touches the web (hard cap 72), so every room
-     * is structurally tied into the corridor network; plus a chance of one
-     * blind spoke that stops short and ends in a wall (a dead end).
+     * Rays of a room: RAY_COUNT hashed spokes. Each spoke grows from its
+     * minimum length onward until it touches the web (hard cap RAY_MAX_REACH),
+     * so every room is structurally tied into the corridor network; plus a
+     * chance of one blind spoke that stops short and ends in a wall (a dead
+     * end). Blind chance comes from rayBlindOneIn: 0 means never.
      */
     public java.util.List<Ray> rays(Room room) {
         java.util.List<Ray> out = new java.util.ArrayList<>();
@@ -194,13 +216,14 @@ public final class Level0Plan {
         int[] dirsX = {1, 1, 0, -1, -1, -1, 0, 1};
         int[] dirsZ = {0, 1, 1, 1, 0, -1, -1, -1};
         int first = (int) Math.floorMod(h, 8);
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < RAY_COUNT; i++) {
             int dir = (first + i * 3) % 8; // spread around the compass
-            int min = 14 + (int) Math.floorMod(hash(seed, room.cx(), room.cz(), SALT_RAYS + 1 + i), 18);
+            int min = RAY_MIN_LEN + (int) Math.floorMod(
+                    hash(seed, room.cx(), room.cz(), SALT_RAYS + 1 + i), RAY_LEN_RANDOM);
             // Grow the spoke until it touches the web (capped)
             int len = min;
             int x = rayStartX(room, dirsX[dir]), z = rayStartZ(room, dirsZ[dir]);
-            for (int s = min; s < 96; s++) {
+            for (int s = min; s < RAY_MAX_REACH; s++) {
                 if (inWeb(x + dirsX[dir] * s, z + dirsZ[dir] * s)) break;
                 len = s + 1;
             }
@@ -208,9 +231,9 @@ public final class Level0Plan {
             // still merge with the web.
             out.add(new Ray(dirsX[dir], dirsZ[dir], len + 1, false));
         }
-        if (Math.floorMod(h >>> 16, 4) == 0) {
+        if (RAY_BLIND_ONE_IN > 0 && Math.floorMod(h >>> 16, RAY_BLIND_ONE_IN) == 0) {
             int dir = (first + 1) % 8;
-            out.add(new Ray(dirsX[dir], dirsZ[dir], 8, true)); // a blind dead end
+            out.add(new Ray(dirsX[dir], dirsZ[dir], RAY_BLIND_LEN, true)); // a dead end
         }
         return out;
     }

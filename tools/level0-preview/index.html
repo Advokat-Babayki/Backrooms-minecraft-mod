@@ -1,0 +1,843 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backrooms Level 0 — превью генерации</title>
+<style>
+  :root {
+    --bg: #131210;
+    --panel: #1b1914;
+    --panel2: #211e18;
+    --line: #302b21;
+    --text: #ddd6c4;
+    --muted: #8d8573;
+    --accent: #e2c766;
+    --accent-dim: #7a6c37;
+    --danger: #e06060;
+    --good: #7bc47f;
+    --warn: #e0b060;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 18px;
+    padding: 14px 20px 10px;
+    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 17px;
+    letter-spacing: 2px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  header h1 span { color: var(--text); font-weight: 400; letter-spacing: 1px; }
+  header .tagline { color: var(--muted); font-size: 12px; }
+  main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 390px;
+    gap: 16px;
+    padding: 16px 20px 24px;
+    align-items: start;
+  }
+  .stage { min-width: 0; }
+  .mapwrap {
+    position: relative;
+    border: 1px solid var(--line);
+    background: #0c0b09;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  canvas#map {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    image-rendering: pixelated;
+    cursor: crosshair;
+  }
+  #busy {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    padding: 5px 12px;
+    background: rgba(0,0,0,.7);
+    border: 1px solid var(--accent-dim);
+    border-radius: 4px;
+    color: var(--accent);
+    font-size: 12px;
+    letter-spacing: 1px;
+    display: none;
+  }
+  #busy.on { display: block; }
+  .stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 10px 0 8px;
+  }
+  .chip {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 5px 9px;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .chip b {
+    color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-weight: 600;
+    margin-left: 5px;
+  }
+  .chip.good b { color: var(--good); }
+  .chip.warn b { color: var(--warn); }
+  .chip.bad { border-color: #5a2a2a; }
+  .chip.bad b { color: var(--danger); }
+  .warnline {
+    color: var(--danger);
+    font-size: 12px;
+    margin: 0 0 8px;
+    display: none;
+  }
+  .warnline.on { display: block; }
+  .hover {
+    min-height: 20px;
+    color: var(--muted);
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .hover b { color: var(--text); font-weight: 600; }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .legend i {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    margin-right: 5px;
+    vertical-align: -1px;
+  }
+  aside.panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 12px;
+    position: sticky;
+    top: 12px;
+    max-height: calc(100vh - 24px);
+    overflow: auto;
+  }
+  .panelHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 6px;
+  }
+  .panelHead > div { font-weight: 600; letter-spacing: .5px; }
+  h3.sec {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+    color: var(--accent);
+    margin: 16px 0 4px;
+    padding-bottom: 2px;
+  }
+  .hint { color: var(--muted); font-size: 11px; margin: 0 0 6px; }
+  .row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 2px 8px;
+    margin: 7px 0 0;
+  }
+  .row label { color: var(--text); font-size: 12.5px; }
+  .row label.changed { color: var(--accent); }
+  .row label.changed::before { content: "• "; color: var(--accent); }
+  .row output {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    color: var(--accent);
+    cursor: pointer;
+    user-select: none;
+    min-width: 52px;
+    text-align: right;
+  }
+  .row input[type=range] {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin: 0;
+    accent-color: var(--accent);
+    height: 18px;
+  }
+  .viewrow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .viewrow label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 2px; }
+  input[type=number], select, textarea {
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 5px 7px;
+    font: inherit;
+    font-size: 12px;
+    width: 100%;
+  }
+  input[type=number]:focus, select:focus, textarea:focus {
+    outline: 1px solid var(--accent-dim);
+  }
+  button {
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 7px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent-dim); color: var(--accent); }
+  button.primary {
+    background: var(--accent);
+    color: #1a1708;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  button.primary:hover { background: #f0d878; color: #1a1708; }
+  .actions {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .actions .row2 { display: flex; gap: 8px; }
+  .actions .row2 button { flex: 1; }
+  .actions .small { color: var(--muted); font-size: 11px; }
+  details { margin-top: 2px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  details textarea {
+    width: 100%;
+    height: 140px;
+    margin-top: 6px;
+    resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    white-space: pre;
+  }
+  .viewbox {
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+  .viewbox .row2 { display: flex; gap: 8px; margin-top: 8px; }
+  .viewbox .row2 button { flex: 1; }
+  @media (max-width: 1050px) {
+    main { grid-template-columns: 1fr; }
+    aside.panel { position: static; max-height: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>BACKROOMS <span>· LEVEL 0</span></h1>
+  <div class="tagline">вид сверху на генерацию · крути ползунки · скачай config и покажи его в чате</div>
+</header>
+
+<main>
+  <section class="stage">
+    <div class="mapwrap">
+      <canvas id="map" width="768" height="768"></canvas>
+      <div id="busy">РЕНДЕР…</div>
+    </div>
+    <div id="stats" class="stats"></div>
+    <div id="warn" class="warnline"></div>
+    <div id="hover" class="hover">наведи курсор на карту, чтобы посмотреть колонку</div>
+    <div class="legend">
+      <span><i style="background:#1e1c14"></i>масса (стена)</span>
+      <span><i style="background:#968445"></i>коридор</span>
+      <span><i style="background:#b09c5a"></i>комната</span>
+      <span><i style="background:#82303f"></i>недостижимо от спавна</span>
+      <span><i style="background:#6ee7ff"></i>точка входа</span>
+      <span><i style="background:#e06060"></i>запертая комната</span>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <div class="panelHead">
+      <div>Настройки генерации</div>
+      <button id="reset" title="Вернуть значения, которые сейчас в игре">Сброс к игре</button>
+    </div>
+    <div id="controls"></div>
+
+    <div class="viewbox">
+      <h3 class="sec" style="margin-top:0">Вид</h3>
+      <div class="viewrow">
+        <div>
+          <label for="span">Окно, блоков</label>
+          <select id="span">
+            <option value="384">384</option>
+            <option value="480">480</option>
+            <option value="640">640</option>
+            <option value="768" selected>768</option>
+            <option value="1024">1024</option>
+            <option value="1280">1280</option>
+            <option value="1536">1536</option>
+          </select>
+        </div>
+        <div>
+          <label for="seedDice">&nbsp;</label>
+          <button id="seedDice">Случайный сид</button>
+        </div>
+      </div>
+      <div class="viewrow">
+        <div>
+          <label for="centerX">Центр X</label>
+          <input id="centerX" type="number" step="48" value="0">
+        </div>
+        <div>
+          <label for="centerZ">Центр Z</label>
+          <input id="centerZ" type="number" step="48" value="0">
+        </div>
+      </div>
+      <div class="viewrow">
+        <div>
+          <label>&nbsp;</label>
+          <button id="toSpawn" style="width:100%">К точке входа</button>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button id="reroll" style="width:100%">Перерисовать</button>
+        </div>
+      </div>
+      <div class="hint" style="margin-top:8px">Карту можно таскать мышью за любое место.</div>
+    </div>
+
+    <div class="actions">
+      <button id="download" class="primary">Скачать config.json</button>
+      <div class="row2">
+        <button id="copy">Скопировать JSON</button>
+        <button id="defaults">Дефолт превью</button>
+      </div>
+      <div class="small">Файл сохранится как <code>level0-config.json</code> (обычно в ~/Downloads). Скажи мне — я прочитаю его и внедрю значения в генерацию мира. После этого они станут дефолтом в игре.</div>
+      <details>
+        <summary>Показать JSON</summary>
+        <textarea id="jsonOut" readonly></textarea>
+      </details>
+    </div>
+  </aside>
+</main>
+
+<script src="core.js"></script>
+<script>
+(function () {
+  "use strict";
+  const Core = window.Level0Core;
+  const DEFAULTS = Core.DEFAULT_CONFIG;
+  const STORE_KEY = "backrooms.level0.preview.v1";
+
+  const state = {
+    config: Object.assign({}, DEFAULTS),
+    view: { span: 768, cx: 0, cz: 0 }
+  };
+  let lastBuild = null;
+  let renderTimer = null;
+  let buildToken = 0;
+
+  // ---- controls schema ----
+  const SECTIONS = [
+    {
+      title: "Мир",
+      hint: "Сид полностью меняет рисунок. Остальные ползунки — форму этого рисунка.",
+      items: [
+        { key: "seed", label: "Сид мира", min: 0, max: 9999, step: 1 }
+      ]
+    },
+    {
+      title: "Коридоры (паутина)",
+      hint: "Коридор — там, где шумовое поле близко к своей линии уровня. Шаг = длина волны изгибов, база ширины = толщина полосы.",
+      items: [
+        { key: "web1Spacing", label: "Поле 1 · шаг", min: 80, max: 320, step: 10 },
+        { key: "web2Spacing", label: "Поле 2 · шаг", min: 80, max: 360, step: 10 },
+        { key: "web3Spacing", label: "Поле 3 · шаг", min: 60, max: 240, step: 5 },
+        { key: "web3WidthFactor", label: "Поле 3 · толщина", min: 0.2, max: 1, step: 0.05 },
+        { key: "widthSpacing", label: "Дыхание ширины · шаг", min: 24, max: 120, step: 4 },
+        { key: "widthBase", label: "База ширины", min: 0.02, max: 0.12, step: 0.002 },
+        { key: "widthBreathMin", label: "Ширина · минимум", min: 0.4, max: 2.5, step: 0.05 },
+        { key: "widthBreathRange", label: "Ширина · размах", min: 0, max: 2, step: 0.05 },
+        { key: "widthGrowMin", label: "Рост к краю · минимум", min: 0.2, max: 1.2, step: 0.05 },
+        { key: "widthGrowMax", label: "Рост к краю · максимум", min: 0.2, max: 1.6, step: 0.05 },
+        { key: "growDistance", label: "Дистанция роста", min: 20, max: 800, step: 10 }
+      ]
+    },
+    {
+      title: "Высоты",
+      hint: "Пол плавно ходит в полушагах в диапазоне 64..88. Шаг поля — за сколько блоков набегает один этаж.",
+      items: [
+        { key: "floorSpacing", label: "Высоты · шаг поля", min: 96, max: 384, step: 8 },
+        { key: "floorLevels", label: "Высоты · этажей", min: 3, max: 9, step: 1 }
+      ]
+    },
+    {
+      title: "Комнаты",
+      hint: "Порог — сколько ячеек из 8 получают комнату (0..8). У спавна действует свой, более строгий порог.",
+      items: [
+        { key: "roomNearGate", label: "Порог у спавна", min: 0, max: 8, step: 1, fmt: gateFmt },
+        { key: "roomFarGate", label: "Порог вдали", min: 0, max: 8, step: 1, fmt: gateFmt },
+        { key: "roomNearRadius", label: "Радиус «у спавна»", min: 0, max: 640, step: 10 },
+        { key: "roomSizeMin", label: "Размер · минимум", min: 6, max: 20, step: 1 },
+        { key: "roomSizeRandom", label: "Размер · разброс", min: 1, max: 30, step: 1 }
+      ]
+    },
+    {
+      title: "Лучи и тупики",
+      hint: "Луч растёт от комнаты до ближайшего коридора. Слепой луч обрывается в стену — это тупик.",
+      items: [
+        { key: "rayCount", label: "Лучей на комнату", min: 0, max: 8, step: 1 },
+        { key: "rayMinLen", label: "Длина · минимум", min: 6, max: 60, step: 1 },
+        { key: "rayLenRandom", label: "Длина · разброс", min: 1, max: 40, step: 1 },
+        { key: "rayMaxReach", label: "Максимальный поиск", min: 24, max: 160, step: 4 },
+        { key: "rayBlindOneIn", label: "Слепой луч", min: 0, max: 8, step: 1, fmt: blindFmt },
+        { key: "rayBlindLen", label: "Длина слепого", min: 3, max: 24, step: 1 }
+      ]
+    }
+  ];
+
+  function gateFmt(v) { return v + "/8 · " + Math.round(v / 8 * 100) + "%"; }
+  function blindFmt(v) { return v === 0 ? "нет" : "1 из " + v; }
+
+  function fmtVal(item, v) {
+    if (item.fmt) return item.fmt(Number(v));
+    if (item.step < 0.01) return Number(v).toFixed(3);
+    if (item.step < 1) return Number(v).toFixed(2);
+    return String(Math.round(Number(v)));
+  }
+
+  // ---- DOM ----
+  const $ = (id) => document.getElementById(id);
+  const canvas = $("map");
+  const ctx = canvas.getContext("2d");
+  const busy = $("busy");
+  const controls = $("controls");
+  const statsEl = $("stats");
+  const warnEl = $("warn");
+  const hoverEl = $("hover");
+  const jsonOut = $("jsonOut");
+
+  // ---- localStorage ----
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (saved && saved.config) Object.assign(state.config, DEFAULTS, saved.config);
+      if (saved && saved.view) Object.assign(state.view, saved.view);
+    } catch (e) { /* ignore */ }
+  }
+  function saveState() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+  }
+
+  // ---- build controls ----
+  const sliderEls = new Map();
+  function buildControls() {
+    controls.innerHTML = "";
+    for (const sec of SECTIONS) {
+      const h = document.createElement("h3");
+      h.className = "sec";
+      h.textContent = sec.title;
+      controls.appendChild(h);
+      if (sec.hint) {
+        const p = document.createElement("p");
+        p.className = "hint";
+        p.textContent = sec.hint;
+        controls.appendChild(p);
+      }
+      for (const item of sec.items) {
+        const row = document.createElement("div");
+        row.className = "row";
+        const label = document.createElement("label");
+        label.textContent = item.label;
+        const out = document.createElement("output");
+        out.title = "двойной клик — значение из игры";
+        const input = document.createElement("input");
+        input.type = "range";
+        input.min = item.min;
+        input.max = item.max;
+        input.step = item.step;
+        input.value = state.config[item.key];
+        const refresh = () => {
+          out.textContent = fmtVal(item, state.config[item.key]);
+          label.classList.toggle("changed", Number(state.config[item.key]) !== Number(DEFAULTS[item.key]));
+          input.value = state.config[item.key];
+        };
+        input.addEventListener("input", () => {
+          state.config[item.key] = Number(input.value);
+          refresh();
+          saveState();
+          scheduleRender();
+        });
+        out.addEventListener("dblclick", () => {
+          state.config[item.key] = DEFAULTS[item.key];
+          refresh();
+          saveState();
+          scheduleRender();
+        });
+        row.appendChild(label);
+        row.appendChild(out);
+        row.appendChild(input);
+        controls.appendChild(row);
+        sliderEls.set(item.key, { input, out, label, refresh, item });
+      }
+    }
+  }
+  function refreshControls() {
+    for (const [, s] of sliderEls) s.refresh();
+  }
+
+  // ---- view inputs ----
+  const spanSel = $("span"), centerXEl = $("centerX"), centerZEl = $("centerZ");
+  function syncViewInputs() {
+    spanSel.value = String(state.view.span);
+    centerXEl.value = String(state.view.cx);
+    centerZEl.value = String(state.view.cz);
+  }
+  spanSel.addEventListener("change", () => {
+    state.view.span = Number(spanSel.value) || 768;
+    saveState();
+    scheduleRender();
+  });
+  for (const el of [centerXEl, centerZEl]) {
+    el.addEventListener("change", () => {
+      state.view.cx = Math.round(Number(centerXEl.value) || 0);
+      state.view.cz = Math.round(Number(centerZEl.value) || 0);
+      saveState();
+      scheduleRender();
+    });
+  }
+  $("toSpawn").addEventListener("click", () => {
+    state.view.cx = 0; state.view.cz = 0;
+    syncViewInputs(); saveState(); scheduleRender();
+  });
+  $("reroll").addEventListener("click", () => scheduleRender());
+
+  // ---- render ----
+  function scheduleRender() {
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(render, 160);
+  }
+
+  function render() {
+    const token = ++buildToken;
+    busy.classList.add("on");
+    setTimeout(() => {
+      if (token !== buildToken) return;
+      const t0 = performance.now();
+      let res;
+      try {
+        res = Core.build(state.config, {
+          span: state.view.span,
+          cx: state.view.cx,
+          cz: state.view.cz
+        });
+      } catch (err) {
+        busy.textContent = "ОШИБКА: " + err.message;
+        console.error(err);
+        return;
+      }
+      busy.classList.remove("on");
+      busy.textContent = "РЕНДЕР…";
+      lastBuild = res;
+      window.__previewMs = Math.round(performance.now() - t0);
+      draw(res);
+      renderStats(res);
+      updateJson(res);
+    }, 30);
+  }
+
+  const COL = {
+    mass: [30, 28, 20],
+    web: [150, 132, 65],
+    ray: [146, 129, 64],
+    room: [176, 156, 90],
+    unreachable: [132, 46, 62],
+    roomEdge: [96, 82, 42],
+    spawn: [110, 231, 255],
+    sealed: [224, 96, 96]
+  };
+
+  function draw(res) {
+    const W = res.W;
+    canvas.width = W;
+    canvas.height = W;
+    const img = ctx.createImageData(W, W);
+    const data = img.data;
+    const floor = res.floor, kind = res.kind, visited = res.visited;
+    const m = res.margin;
+    const origW = res.W;
+    const origH = res.W;
+
+    for (let pz = 0; pz < W; pz++) {
+      for (let px = 0; px < W; px++) {
+        const i = pz * W + px;
+        const o = i * 4;
+        const fh = floor[i];
+        let r, g, b;
+        if (fh === -32768) {
+          const grain = ((Math.imul(px + 11, 73856093) ^ Math.imul(pz + 17, 19349663)) >>> 27) & 3;
+          r = COL.mass[0] + grain; g = COL.mass[1] + grain; b = COL.mass[2] + grain;
+        } else {
+          const d = Math.max(0, Math.min(1, (fh - 128) / 48));
+          const shade = 0.78 + 0.34 * d;
+          const base = kind[i] === 3 ? COL.room : (kind[i] === 2 ? COL.ray : COL.web);
+          r = base[0] * shade; g = base[1] * shade; b = base[2] * shade;
+          const grain = (((Math.imul(px + 3, 73856093) ^ Math.imul(pz + 5, 19349663)) >>> 28) & 7) - 3;
+          r += grain; g += grain; b += grain;
+
+          // room outline: only where the room touches solid mass (doorways stay open)
+          if (kind[i] === 3) {
+            const edge =
+              (px > 0 && kind[i - 1] === 0) ||
+              (px < W - 1 && kind[i + 1] === 0) ||
+              (pz > 0 && kind[i - W] === 0) ||
+              (pz < W - 1 && kind[i + W] === 0);
+            if (edge) {
+              r = COL.roomEdge[0] * shade; g = COL.roomEdge[1] * shade; b = COL.roomEdge[2] * shade;
+            }
+          }
+
+          // unreachable pockets (inside the trusted inset only)
+          if (visited && px >= m && px < origW - m && pz >= m && pz < origH - m && !visited[i]) {
+            r = r * 0.4 + COL.unreachable[0] * 0.6;
+            g = g * 0.4 + COL.unreachable[1] * 0.6;
+            b = b * 0.4 + COL.unreachable[2] * 0.6;
+          }
+        }
+        data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+
+    // spawn marker
+    if (res.spawn && res.spawn.inside) {
+      const sx = res.spawn.x - res.x0, sz = res.spawn.z - res.z0;
+      ctx.strokeStyle = "rgba(110,231,255,.95)";
+      ctx.lineWidth = Math.max(1, Math.round(W / 500));
+      ctx.beginPath();
+      ctx.moveTo(sx - 6, sz); ctx.lineTo(sx + 6, sz);
+      ctx.moveTo(sx, sz - 6); ctx.lineTo(sx, sz + 6);
+      ctx.stroke();
+    }
+
+    // sealed room markers
+    for (const rm of res.rooms) {
+      if (!rm.sealed) continue;
+      const sx = rm.centerX - res.x0, sz = rm.centerZ - res.z0;
+      ctx.strokeStyle = "rgba(224,96,96,.95)";
+      ctx.lineWidth = Math.max(1, Math.round(W / 420));
+      ctx.beginPath();
+      ctx.moveTo(sx - 5, sz - 5); ctx.lineTo(sx + 5, sz + 5);
+      ctx.moveTo(sx + 5, sz - 5); ctx.lineTo(sx - 5, sz + 5);
+      ctx.stroke();
+    }
+  }
+
+  function renderStats(res) {
+    const s = res.stats;
+    const chips = [];
+    chips.push(chip("вырезано", s.carvedPct.toFixed(1) + "%"));
+    if (s.reachPct === null) {
+      chips.push(chip("достижимо", "—"));
+    } else {
+      const cls = s.reachPct >= 97 ? "good" : s.reachPct >= 90 ? "warn" : "bad";
+      chips.push(chip("достижимо", s.reachPct.toFixed(1) + "%", cls));
+    }
+    if (s.sealedRooms === null) {
+      chips.push(chip("запертых комнат", "—"));
+    } else {
+      chips.push(chip("запертых комнат", String(s.sealedRooms), s.sealedRooms === 0 ? "good" : "bad"));
+    }
+    chips.push(chip("комнат в кадре", String(s.roomsInner)));
+    chips.push(chip("пол", (s.floorMin === null ? "—" : s.floorMin.toFixed(1) + "…" + s.floorMax.toFixed(1))));
+    if (window.__previewMs) chips.push(chip("рендер", window.__previewMs + " мс"));
+    statsEl.innerHTML = chips.join("");
+
+    const problems = [];
+    if (s.sealedRooms > 0) problems.push("есть запертые комнаты: добавь лучей (rayCount) или увеличь их минимальную длину.");
+    if (s.reachPct !== null && s.reachPct < 90) problems.push("слишком много недостижимых карманов: проверь ширину коридоров и лучи.");
+    if (!s.spawnInside) problems.push("точка входа вне кадра — статистика связности не считается. Вернись «К точке входа».");
+    if (problems.length) {
+      warnEl.textContent = problems.join(" ");
+      warnEl.classList.add("on");
+    } else {
+      warnEl.classList.remove("on");
+    }
+  }
+
+  function chip(label, value, cls) {
+    return '<span class="chip ' + (cls || "") + '">' + label + "<b>" + value + "</b></span>";
+  }
+
+  // ---- hover ----
+  let drag = null;
+  canvas.addEventListener("mousedown", (e) => {
+    drag = { sx: e.clientX, sy: e.clientY, cx: state.view.cx, cz: state.view.cz, moved: false };
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (drag) {
+      if (Math.abs(e.clientX - drag.sx) > 3 || Math.abs(e.clientY - drag.sy) > 3) drag.moved = true;
+      return;
+    }
+    if (!lastBuild) return;
+    const rect = canvas.getBoundingClientRect();
+    if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) return;
+    const px = Math.min(lastBuild.W - 1, Math.floor((e.clientX - rect.left) / rect.width * lastBuild.W));
+    const pz = Math.min(lastBuild.W - 1, Math.floor((e.clientY - rect.top) / rect.height * lastBuild.W));
+    const wx = lastBuild.x0 + px;
+    const wz = lastBuild.z0 + pz;
+    const info = lastBuild.probe(wx, wz);
+    if (!info) return;
+    if (!info.carved) {
+      hoverEl.innerHTML = "x=" + wx + " z=" + wz + " · ячейка [" + info.cellX + ", " + info.cellZ + "] · <b>масса</b> (не вырезано)";
+      return;
+    }
+    let what = info.kind === 3 ? "комната" : info.kind === 2 ? "луч" : "коридор";
+    let text = "x=" + wx + " z=" + wz + " · ячейка [" + info.cellX + ", " + info.cellZ + "] · <b>" +
+      what + "</b> · пол y=" + (info.floorY + 1).toFixed(1);
+    if (info.room) {
+      const rm = info.room;
+      const inRect = Math.abs(wx - rm.centerX) <= Math.floor(rm.size / 2) && Math.abs(wz - rm.centerZ) <= Math.floor(rm.size / 2);
+      if (inRect) {
+        text += " · <b>" + Core.roomTypeName(rm.type) + "</b> · размер " + rm.size + " · комнатный пол y=" + rm.floorY;
+      }
+    }
+    if (info.reachable === false) text += " · <b style='color:#e06060'>недостижимо от спавна</b>";
+    hoverEl.innerHTML = text;
+  });
+  window.addEventListener("mouseup", (e) => {
+    if (!drag) return;
+    const wasMoved = drag.moved;
+    const sx = drag.sx, sy = drag.sy, c0x = drag.cx, c0z = drag.cz;
+    drag = null;
+    if (!wasMoved) return;
+    const rect = canvas.getBoundingClientRect();
+    const dx = (e.clientX - sx) * state.view.span / rect.width;
+    const dz = (e.clientY - sy) * state.view.span / rect.height;
+    state.view.cx = Math.round(c0x - dx);
+    state.view.cz = Math.round(c0z - dz);
+    syncViewInputs();
+    saveState();
+    scheduleRender();
+  });
+
+  // ---- export ----
+  const CONFIG_KEYS = Object.keys(DEFAULTS);
+
+  function cleanConfig() {
+    const out = {};
+    for (const k of CONFIG_KEYS) {
+      const v = Number(state.config[k]);
+      out[k] = Math.abs(v - Math.round(v)) < 1e-9 ? Math.round(v) : Math.round(v * 10000) / 10000;
+    }
+    return out;
+  }
+
+  function configJson() {
+    return JSON.stringify(Object.assign({}, cleanConfig(), {
+      _view: { span: state.view.span, centerX: state.view.cx, centerZ: state.view.cz },
+      _stats: lastBuild ? {
+        carvedPct: Math.round(lastBuild.stats.carvedPct * 10) / 10,
+        reachPct: lastBuild.stats.reachPct === null ? null : Math.round(lastBuild.stats.reachPct * 10) / 10,
+        sealedRooms: lastBuild.stats.sealedRooms,
+        rooms: lastBuild.stats.roomsInner
+      } : null,
+      _generatedAt: new Date().toISOString()
+    }), null, 2);
+  }
+
+  function updateJson() {
+    jsonOut.value = configJson();
+  }
+
+  $("download").addEventListener("click", () => {
+    const blob = new Blob([configJson()], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "level0-config.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+
+  $("copy").addEventListener("click", async () => {
+    updateJson();
+    const text = jsonOut.value;
+    try {
+      await navigator.clipboard.writeText(text);
+      $("copy").textContent = "Скопировано!";
+    } catch (e) {
+      jsonOut.focus(); jsonOut.select();
+      try { document.execCommand("copy"); $("copy").textContent = "Скопировано!"; }
+      catch (e2) { $("copy").textContent = "Скопируй из поля ниже"; }
+    }
+    setTimeout(() => { $("copy").textContent = "Скопировать JSON"; }, 1500);
+  });
+
+  $("defaults").addEventListener("click", () => {
+    state.config = Object.assign({}, DEFAULTS);
+    refreshControls();
+    saveState();
+    scheduleRender();
+  });
+
+  $("reset").addEventListener("click", () => {
+    state.config = Object.assign({}, DEFAULTS);
+    state.view = { span: 768, cx: 0, cz: 0 };
+    refreshControls();
+    syncViewInputs();
+    saveState();
+    scheduleRender();
+  });
+
+  $("seedDice").addEventListener("click", () => {
+    const seed = Math.floor(Math.random() * 10000);
+    state.config.seed = seed;
+    refreshControls();
+    saveState();
+    scheduleRender();
+  });
+
+  // ---- init ----
+  loadState();
+  buildControls();
+  syncViewInputs();
+  render();
+})();
+</script>
+</body>
+</html>

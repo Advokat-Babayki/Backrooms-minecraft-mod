@@ -106,12 +106,15 @@ public class Level0Generator extends ChunkGenerator {
             }
         }
 
-        // ---- Pass 3: rooms of this cell and its neighbors (rays reach across) ----
-        for (int dcx = -1; dcx <= 1; dcx++) {
-            for (int dcz = -1; dcz <= 1; dcz++) {
+        // ---- Pass 3: rooms near this chunk (long rays reach across cells) ----
+        int reach = Level0Plan.RAY_MAX_REACH + 2;
+        int radius = (reach + Level0Plan.CELL_BLOCKS + 1) / Level0Plan.CELL_BLOCKS;
+        for (int dcx = -radius; dcx <= radius; dcx++) {
+            for (int dcz = -radius; dcz <= radius; dcz++) {
                 Level0Plan.Room room = plan.room(Level0Plan.cellOf(baseX) + dcx,
                         Level0Plan.cellOf(baseZ) + dcz);
                 if (room == null) continue;
+                if (!affectsChunk(room, pos, reach)) continue;
                 carveRays(chunk, pos, room, carvedFloors,
                         carpet, ceilingTile, light, air, slabBottom);
                 if (overlapsChunk(room, pos)) {
@@ -122,6 +125,14 @@ public class Level0Generator extends ChunkGenerator {
         }
 
         return CompletableFuture.completedFuture(chunk);
+    }
+
+    /** True when the room's rays can reach any column of this chunk. */
+    private static boolean affectsChunk(Level0Plan.Room room, ChunkPos pos, int reach) {
+        return pos.getMinBlockX() - reach <= Level0Plan.roomMaxX(room)
+                && pos.getMaxBlockX() + reach >= Level0Plan.roomMinX(room)
+                && pos.getMinBlockZ() - reach <= Level0Plan.roomMaxZ(room)
+                && pos.getMaxBlockZ() + reach >= Level0Plan.roomMinZ(room);
     }
 
     private static boolean overlapsChunk(Level0Plan.Room room, ChunkPos pos) {
@@ -151,22 +162,22 @@ public class Level0Generator extends ChunkGenerator {
     /**
      * One open column at a half-block floor height: even half-units are a
      * single carpet block, odd ones stack a bottom slab on top of the block.
+     * y0 is the block carrying the carpet, so the walkable surface is
+     * y0 + 1 (even s) or y0 + 1.5 (odd s) - adjacent half-steps stay 0.5.
      */
     private void carveOpenColumn(ChunkAccess chunk, int x, int z, int s, int baseX, int baseZ,
             BlockState carpet, BlockState ceilingTile, BlockState light, BlockState air,
             BlockState slabBottom) {
-        int y0 = (s % 2 == 0) ? s / 2 : (s + 1) / 2; // block under the surface
-        int ceilY = (s % 2 == 0) ? y0 + 4 : y0 + 4;
-        BlockState floorTop = (s % 2 == 0) ? carpet : slabBottom;
-        BlockState floorBottom = carpet;
+        boolean half = (s & 1) != 0;
+        int y0 = half ? (s - 1) / 2 : s / 2;
+        int ceilY = y0 + (half ? 5 : 4);
 
-        // carve air first, then floor pieces so the merge check sees both states
-        for (int y = y0 + 1; y <= ceilY - 1; y++) {
+        for (int y = y0 + 1; y < ceilY; y++) {
             chunk.setBlockState(new BlockPos(x, y, z), air, false);
         }
-        chunk.setBlockState(new BlockPos(x, y0, z), floorBottom, false);
-        if (floorTop != floorBottom) {
-            chunk.setBlockState(new BlockPos(x, y0 + 1, z), floorTop, false);
+        chunk.setBlockState(new BlockPos(x, y0, z), carpet, false);
+        if (half) {
+            chunk.setBlockState(new BlockPos(x, y0 + 1, z), slabBottom, false);
         }
         setCeiling(chunk, x, z, ceilY, baseX, baseZ, ceilingTile, light);
     }
@@ -186,31 +197,58 @@ public class Level0Generator extends ChunkGenerator {
      * floor into the web's height field over the first 70% of its length,
      * so the walk up or down is a gentle half-step ramp. Blind rays stop
      * early and end in a wall.
+     *
+     * Rays are two blocks wide. Diagonal rays also get a horizontal bridge
+     * column every step and an elbow at the room corner: a one-wide diagonal
+     * slit is not walkable in Minecraft, a staircase of 4-connected columns is.
      */
     private void carveRays(ChunkAccess chunk, ChunkPos pos, Level0Plan.Room room,
             java.util.Map<Long, Integer> carvedFloors,
             BlockState carpet, BlockState ceilingTile, BlockState light, BlockState air,
             BlockState slabBottom) {
         int roomH = room.floorY() * 2; // half-units
+        int rMaxX = Level0Plan.roomMaxX(room), rMinX = Level0Plan.roomMinX(room);
+        int rMaxZ = Level0Plan.roomMaxZ(room), rMinZ = Level0Plan.roomMinZ(room);
         for (Level0Plan.Ray ray : plan.rays(room)) {
-            for (int i = 0; i < ray.len(); i++) {
-                int x = ray.dx() > 0 ? Level0Plan.roomMaxX(room) + 1 + ray.dx() * i
-                        : ray.dx() < 0 ? Level0Plan.roomMinX(room) - 1 + ray.dx() * i
-                        : room.centerX() + ray.dx() * i;
-                int z = ray.dz() > 0 ? Level0Plan.roomMaxZ(room) + 1 + ray.dz() * i
-                        : ray.dz() < 0 ? Level0Plan.roomMinZ(room) - 1 + ray.dz() * i
-                        : room.centerZ() + ray.dz() * i;
-                if (x < pos.getMinBlockX() || x > pos.getMaxBlockX()
-                        || z < pos.getMinBlockZ() || z > pos.getMaxBlockZ()) continue;
-                if (ray.blind() && i >= ray.len() - 1) break; // dead end: keep the wall
+            int sx = ray.dx() > 0 ? rMaxX + 1 : ray.dx() < 0 ? rMinX - 1 : room.centerX();
+            int sz = ray.dz() > 0 ? rMaxZ + 1 : ray.dz() < 0 ? rMinZ - 1 : room.centerZ();
+            int upto = ray.blind() ? ray.len() - 1 : ray.len();
+            for (int i = 0; i < upto; i++) {
+                int x = sx + ray.dx() * i;
+                int z = sz + ray.dz() * i;
                 int webH = plan.floorHalf(x, z);
                 int webCapped = Math.max(roomH - 12, Math.min(roomH + 12, webH));
                 double t = Math.min(1.0, i / (ray.len() * 0.7));
                 int s = (int) Math.round(lerd(roomH, webCapped, t));
-                carveMerged(chunk, x, z, s, pos.getMinBlockX(), pos.getMinBlockZ(), carvedFloors,
+
+                carveRayColumn(chunk, pos, x, z, s, carvedFloors,
                         carpet, ceilingTile, light, air, slabBottom);
+                if (ray.dx() != 0 && ray.dz() != 0) {
+                    carveRayColumn(chunk, pos, x + ray.dx(), z, s, carvedFloors,
+                            carpet, ceilingTile, light, air, slabBottom);
+                    if (i == 0) {
+                        carveRayColumn(chunk, pos, x, z - ray.dz(), s, carvedFloors,
+                                carpet, ceilingTile, light, air, slabBottom);
+                    }
+                } else if (ray.dx() != 0) {
+                    carveRayColumn(chunk, pos, x, z + 1, s, carvedFloors,
+                            carpet, ceilingTile, light, air, slabBottom);
+                } else {
+                    carveRayColumn(chunk, pos, x + 1, z, s, carvedFloors,
+                            carpet, ceilingTile, light, air, slabBottom);
+                }
             }
         }
+    }
+
+    private void carveRayColumn(ChunkAccess chunk, ChunkPos pos, int x, int z, int s,
+            java.util.Map<Long, Integer> carvedFloors,
+            BlockState carpet, BlockState ceilingTile, BlockState light, BlockState air,
+            BlockState slabBottom) {
+        if (x < pos.getMinBlockX() || x > pos.getMaxBlockX()
+                || z < pos.getMinBlockZ() || z > pos.getMaxBlockZ()) return;
+        carveMerged(chunk, x, z, s, pos.getMinBlockX(), pos.getMinBlockZ(), carvedFloors,
+                carpet, ceilingTile, light, air, slabBottom);
     }
 
     private static double lerd(double a, double b, double t) {
