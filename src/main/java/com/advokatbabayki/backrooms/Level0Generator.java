@@ -130,9 +130,9 @@ public class Level0Generator extends ChunkGenerator {
     }
 
     /**
-     * Carves a hallway column unless this column was already carved at a
-     * floor more than half a block away: crossing hallways merge instead of
-     * building step-walls, exactly like the simulation guarantees.
+     * Carves a hallway column, clamping its floor to half a block of any
+     * floor already carved here: crossing hallways merge into a smooth
+     * step instead of building a wall, exactly like the verified simulation.
      */
     private void carveMerged(ChunkAccess chunk, int x, int z, int s, int baseX, int baseZ,
             java.util.Map<Long, Integer> carvedFloors,
@@ -140,7 +140,10 @@ public class Level0Generator extends ChunkGenerator {
             BlockState slabBottom) {
         Long key = (long) x << 32 | (z & 0xFFFFFFFFL);
         Integer prev = carvedFloors.get(key);
-        if (prev != null && Math.abs(prev - s) > 1) return; // keep the earlier floor
+        if (prev != null) {
+            if (s > prev + 1) s = prev + 1;       // half-units: keep within 0.5 blocks
+            else if (s < prev - 1) s = prev - 1;
+        }
         carvedFloors.put(key, s);
         carveOpenColumn(chunk, x, z, s, baseX, baseZ, carpet, ceilingTile, light, air, slabBottom);
     }

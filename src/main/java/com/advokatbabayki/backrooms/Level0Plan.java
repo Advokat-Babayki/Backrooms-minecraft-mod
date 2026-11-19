@@ -36,11 +36,12 @@ public final class Level0Plan {
     private static final int WIDTH_SPACING = 48;               // width breathing wavelength
     private static final long SALT_WEB1 = 0x5DEECE66DL;
     private static final long SALT_WEB2 = 0x1D2545F4914F6CDDL;
-    private static final long SALT_WEB3 = 0x2545F4914F6CDD1D5L;
+    private static final long SALT_WEB3 = 0x2545F4914F6CDDL;
     private static final long SALT_WIDTH = 0x6CDD1D2545F4914DL;
     private static final long SALT_FLOOR = 0x2545F4914F6CDD1DL;
-    private static final long SALT_ROOM = 0x2545F4914F6CDD1D8L;
+    private static final long SALT_ROOM = 0x2545F4914F6CDD1DL;
     private static final long SALT_RAYS = 0x8D1D4C6CDD2545F4L;
+
 
     private final long seed;
 
