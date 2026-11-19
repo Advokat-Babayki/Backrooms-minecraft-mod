@@ -129,8 +129,10 @@ public final class Level0Plan {
     public static final int ROOM_TALL = 5;
 
     /**
-     * Deterministic room archetype of a cell. A mezzanine needs an 8-step
-     * staircase, so rooms too small for it fall back to pillars.
+     * Deterministic room archetype of a cell. Base types cover most rooms;
+     * the rest spread roughly evenly over the 45 variation recipes (6..50).
+     * A mezzanine needs an 8-step staircase, so small rooms fall back to
+     * pillars.
      */
     public int roomType(int cx, int cz) {
         long h = (cx * 0x9E3779B97F4A7C15L) ^ (cz * 0xBF58476D1CE4E5B9L);
@@ -139,18 +141,20 @@ public final class Level0Plan {
         h ^= h >>> 32;
         int v = (int) Math.floorMod(h, 100);
         int t;
-        if (v < 25) t = ROOM_PLAIN;
-        else if (v < 45) t = ROOM_PILLARS;
-        else if (v < 60) t = ROOM_MEZZANINE;
-        else if (v < 75) t = ROOM_HOLES;
-        else if (v < 85) t = ROOM_BLACKOUT;
-        else t = ROOM_TALL;
+        if (v < 18) t = ROOM_PLAIN;
+        else if (v < 28) t = ROOM_PILLARS;
+        else if (v < 36) t = ROOM_MEZZANINE;
+        else if (v < 44) t = ROOM_HOLES;
+        else if (v < 52) t = ROOM_BLACKOUT;
+        else if (v < 62) t = ROOM_TALL;
+        else t = 6 + ((v - 62) * 45 + 22) / 38; // 6..50, roughly uniform
         if (t == ROOM_MEZZANINE && room(cx, cz).size() < 20) t = ROOM_PILLARS;
         return t;
     }
 
     /** Short machine-readable name of a room archetype. */
     public static String roomTypeName(int type) {
+        if (type >= 6) return RoomVariants.name(type);
         return switch (type) {
             case ROOM_PILLARS -> "PILLARS";
             case ROOM_MEZZANINE -> "MEZZANINE";

@@ -39,6 +39,7 @@ public class BackroomsMod {
                 output.accept(BackroomsBlocks.CEILING_TILE_ITEM.get());
                 output.accept(BackroomsBlocks.FLUORESCENT_PANEL_ITEM.get());
                 output.accept(BackroomsBlocks.WALLPAPER_SLAB_ITEM.get());
+                output.accept(BackroomsBlocks.RED_WALLPAPER_ITEM.get());
             }).build());
 
     public BackroomsMod(IEventBus modEventBus, ModContainer modContainer) {

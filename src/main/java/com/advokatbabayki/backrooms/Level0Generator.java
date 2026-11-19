@@ -107,8 +107,8 @@ public class Level0Generator extends ChunkGenerator {
         // ---- Pass 3: carve the cell's room ----
         Level0Plan.Room room = chunkPlan.room();
         if (room != null) {
-            carveRoom(chunk, plan, room, baseX, baseZ,
-                    carpet, ceilingTile, light, air, slabBottom, slabTop);
+            carveRoom(chunk, pos, plan, room, baseX, baseZ,
+                    carpet, wallpaper, ceilingTile, light, air, slabBottom, slabTop);
         }
 
         return CompletableFuture.completedFuture(chunk);
@@ -175,10 +175,10 @@ public class Level0Generator extends ChunkGenerator {
 
     // ---- Rooms ----
 
-    private void carveRoom(ChunkAccess chunk, Level0Plan plan, Level0Plan.Room room,
+    private void carveRoom(ChunkAccess chunk, ChunkPos pos, Level0Plan plan, Level0Plan.Room room,
             int baseX, int baseZ,
-            BlockState carpet, BlockState ceilingTile, BlockState light, BlockState air,
-            BlockState slabBottom, BlockState slabTop) {
+            BlockState carpet, BlockState wallpaper, BlockState ceilingTile, BlockState light,
+            BlockState air, BlockState slabBottom, BlockState slabTop) {
         int h = plan.cellFloorY(room.cx(), room.cz());
         int type = plan.roomType(room.cx(), room.cz());
         boolean tall = type == Level0Plan.ROOM_PILLARS || type == Level0Plan.ROOM_MEZZANINE
@@ -208,7 +208,13 @@ public class Level0Generator extends ChunkGenerator {
                     carpet, slabBottom);
             case Level0Plan.ROOM_HOLES -> carveHoles(chunk, room, baseX, baseZ, rMinX, rMaxX, rMinZ, rMaxZ, h,
                     air, slabBottom, slabTop);
-            default -> { /* plain, blackout and tall halls stay empty */ }
+            default -> {
+                if (type >= 6) {
+                    RoomVariants.carve(chunk, pos, plan, room, type, carpet, wallpaper, ceilingTile,
+                            light, air, slabBottom, slabTop);
+                }
+                // base plain, blackout and tall halls stay empty
+            }
         }
 
         // Ceiling with lights (blackout rooms stay dark)

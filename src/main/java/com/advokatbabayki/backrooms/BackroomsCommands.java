@@ -81,7 +81,7 @@ public final class BackroomsCommands {
             case Level0Plan.ROOM_HOLES -> "HOLES (проломы в полу)";
             case Level0Plan.ROOM_BLACKOUT -> "BLACKOUT (тёмная)";
             case Level0Plan.ROOM_TALL -> "TALL (огромный ангар)";
-            default -> "PLAIN (пустая)";
+            default -> Level0Plan.roomTypeName(type) + " (вариант " + type + ")";
         };
         String place = inside ? "Ты в комнате" : "Ты в коридоре; комната ячейки";
         source.sendSuccess(() -> Component.literal(String.format(
