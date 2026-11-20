@@ -36,15 +36,15 @@
 
   const DEFAULT_CONFIG = Object.freeze({
     seed: 0,
-    pitch: 64,
-    jitter: 20,
+    pitch: 32,
+    jitter: 9,
     streetWidthMax: 7,
     segmentChance: 65,
     blockChance: 100,
     maxRooms: 3,
     doorWidth: 3,
-    wideOpening: 6,
-    columnSpacing: 6,
+    wideOpening: 4,
+    columnSpacing: 4,
     partitionChance: 40,
     districtSize: 2,
     raisedChance: 30,
@@ -197,6 +197,7 @@
     }
     const hb = hash64(i, j, SALT_BLOCK);
     const forced = i === SPAWN_I && j === SPAWN_J;
+    const level = blockLevel(i, j);
     if (!forced && Number(hb % 100n) >= BigInt(CFG.blockChance)) {
       blockCache.set(key, null);
       return null;
@@ -215,6 +216,8 @@
     else if (lr < 75) layout = "offices";
     else if (lr < 90) layout = "suite";
     else layout = "merge";
+    // A stair ramp at the street door would leave interior doorways on a ledge.
+    if (level !== 0 && layout !== "hall" && layout !== "merge") layout = "hall";
 
     const primary = forced ? "n" : present[Number((hb >> 20n) % BigInt(present.length))];
     const vertical = primary === "n" || primary === "s";
@@ -223,7 +226,7 @@
     const iz0 = b.z0 + 1, iz1 = b.z1 - 1;
     if (layout !== "hall" && layout !== "suite") {
       const along = vertical ? ix1 - ix0 : iz1 - iz0;
-      if (along < 26) layout = "hall";
+      if (along < 13) layout = "hall";
     }
     const rooms = [];
     const doors = [];
@@ -347,34 +350,38 @@
       for (const side of present) addStreetDoor(9, r, side);
       addColumns(r);
       // nested storage room in a hashed corner
-      const sw = Math.min(10, Math.max(6, Math.floor((r.x1 - r.x0) / 3)));
-      const sd = Math.min(10, Math.max(6, Math.floor((r.z1 - r.z0) / 3)));
-      const corner = hashNum(i, j, SALT_DETAIL) % 4;
-      const nx0 = corner === 0 || corner === 3 ? r.x0 + 3 : r.x1 - sw - 3;
-      const nz0 = corner < 2 ? r.z0 + 3 : r.z1 - sd - 3;
-      const nx1 = nx0 + sw, nz1 = nz0 + sd;
-      const inner = { x0: nx0 + 1, x1: nx1 - 1, z0: nz0 + 1, z1: nz1 - 1 };
-      if (inner.x1 - inner.x0 >= 4 && inner.z1 - inner.z0 >= 4) {
-        // storage walls (the inner room itself is already part of the big room)
-        solids.push(
-          { x0: nx0, x1: nx1, z0: nz0, z1: nz0 },
-          { x0: nx0, x1: nx1, z0: nz1, z1: nz1 },
-          { x0: nx0, x1: nx0, z0: nz0, z1: nz1 },
-          { x0: nx1, x1: nx1, z0: nz0, z1: nz1 }
-        );
-        rooms.push({ ...inner, name: LAYOUT_NAMES.suite });
-        // door from storage to the main suite
-        const dsp = inner.x1 - inner.x0 - 3;
-        if (dsp > 0) {
-          const dx = inner.x0 + 1 + Number(hashDoor(7, 3) % BigInt(dsp));
-          doors.push({ x0: dx, x1: dx + 2, z0: nz1, z1: nz1 });
+      const sw = 6, sd = 6;
+      if (r.x1 - r.x0 >= sw + 2 && r.z1 - r.z0 >= sd + 2) {
+        const corner = hashNum(i, j, SALT_DETAIL) % 4;
+        const nx0 = corner === 0 || corner === 3 ? r.x0 + 2 : r.x1 - sw - 2;
+        const nz0 = corner < 2 ? r.z0 + 2 : r.z1 - sd - 2;
+        const nx1 = nx0 + sw, nz1 = nz0 + sd;
+        const inner = { x0: nx0 + 1, x1: nx1 - 1, z0: nz0 + 1, z1: nz1 - 1 };
+        if (inner.x1 - inner.x0 >= 4 && inner.z1 - inner.z0 >= 4) {
+          // storage walls (the inner room itself is already part of the big room)
+          solids.push(
+            { x0: nx0, x1: nx1, z0: nz0, z1: nz0 },
+            { x0: nx0, x1: nx1, z0: nz1, z1: nz1 },
+            { x0: nx0, x1: nx0, z0: nz0, z1: nz1 },
+            { x0: nx1, x1: nx1, z0: nz0, z1: nz1 }
+          );
+          rooms.push({ ...inner, name: LAYOUT_NAMES.suite });
+          // door from storage to the main suite
+          const dsp = inner.x1 - inner.x0 - 3;
+          if (dsp > 0) {
+            const dx = inner.x0 + 1 + Number(hashDoor(7, 3) % BigInt(dsp));
+            doors.push({ x0: dx, x1: dx + 2, z0: nz1, z1: nz1 });
+          }
         }
       }
     } else if (layout === "merge") {
       // two rooms with a wide opening in the dividing wall
-      const cut = vertical
-        ? ix0 + Math.floor((ix1 - ix0) * 0.5) + (hashNum(i, j, SALT_DETAIL) % 9) - 4
-        : iz0 + Math.floor((iz1 - iz0) * 0.5) + (hashNum(i, j, SALT_DETAIL) % 9) - 4;
+      let cut = vertical
+        ? ix0 + Math.floor((ix1 - ix0) * 0.5) + (hashNum(i, j, SALT_DETAIL) % 5) - 2
+        : iz0 + Math.floor((iz1 - iz0) * 0.5) + (hashNum(i, j, SALT_DETAIL) % 5) - 2;
+      cut = vertical
+        ? clampInt(cut, ix0 + 6, ix1 - 6)
+        : clampInt(cut, iz0 + 6, iz1 - 6);
       if (vertical) {
         const a = { x0: ix0, x1: cut - 1, z0: iz0, z1: iz1 };
         const c = { x0: cut + 1, x1: ix1, z0: iz0, z1: iz1 };
@@ -408,7 +415,7 @@
       // pass through to the opposite street.
       const alongZ = vertical;
       const crossLen = alongZ ? ix1 - ix0 : iz1 - iz0;
-      if (crossLen < 20) {
+      if (crossLen < 10) {
         const r = { x0: ix0, x1: ix1, z0: iz0, z1: iz1 };
         rooms.push({ ...r, name: LAYOUT_NAMES.hall });
         for (const side of present) addStreetDoor(9, r, side);
@@ -416,7 +423,7 @@
       } else {
         const corridorW = clampInt(CFG.doorWidth + 1, 3, 5);
         const crossStart = alongZ ? ix0 : iz0;
-        const c0 = crossStart + 4 + hashNum(i, j, SALT_DETAIL) % Math.max(1, crossLen - 8 - corridorW);
+        const c0 = crossStart + 2 + hashNum(i, j, SALT_DETAIL) % Math.max(1, crossLen - 4 - corridorW);
         const c1 = c0 + corridorW - 1;
         const corridor = alongZ
           ? { x0: c0, x1: c1, z0: iz0, z1: iz1 }
@@ -438,10 +445,10 @@
         }
 
         function carveStrip(x0, x1, z0, z1, wallAxis, wallPos, stripIdx) {
-          if (x1 - x0 < 5 || z1 - z0 < 5) return;
+          if (x1 - x0 < 3 || z1 - z0 < 3) return;
           const long = alongZ ? z1 - z0 + 1 : x1 - x0 + 1;
           let n = 1 + hashNum(i + stripIdx * 17, j, SALT_DETAIL) % 3;
-          n = Math.min(n, Math.max(1, Math.floor(long / 12)));
+          n = Math.min(n, Math.max(1, Math.floor(long / 6)));
           const spans = [];
           if (n <= 1) {
             spans.push([0, long - 1]);

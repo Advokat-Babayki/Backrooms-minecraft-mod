@@ -18,15 +18,15 @@ import javax.annotation.Nullable;
  */
 public final class Level0Plan {
     // ---- Tunables (mirrored by tools/level0-preview) ----
-    public static final int PITCH = 64;
-    public static final int JITTER = 20;
+    public static final int PITCH = 32;
+    public static final int JITTER = 9;
     public static final int STREET_WIDTH_MAX = 7;
     public static final int SEGMENT_CHANCE = 65;
     public static final int BLOCK_CHANCE = 100;
     public static final int MAX_ROOMS = 3;
     public static final int DOOR_WIDTH = 3;
-    public static final int WIDE_OPENING = 6;
-    public static final int COLUMN_SPACING = 6;
+    public static final int WIDE_OPENING = 4;
+    public static final int COLUMN_SPACING = 4;
     public static final int PARTITION_CHANCE = 40;
     public static final int DISTRICT_SIZE = 2;      // blocks per height district
     public static final int RAISED_CHANCE = 30;     // % of districts on another floor
@@ -226,6 +226,7 @@ public final class Level0Plan {
 
         long hb = hash(i, j, SALT_BLOCK);
         boolean forced = i == spawnI && j == spawnJ;
+        int level = blockLevel(i, j);
         if (!forced && umod(hb, 100L) >= BLOCK_CHANCE) return null;
 
         boolean sn = segH(i, j), se = segV(i + 1, j), ss = segH(i, j + 1), sw = segV(i, j);
@@ -243,6 +244,10 @@ public final class Level0Plan {
         else if (lr < 75) layout = "offices";
         else if (lr < 90) layout = "suite";
         else layout = "merge";
+        // A stair ramp at the street door would leave interior doorways on a ledge.
+        if (level != 0 && !layout.equals("hall") && !layout.equals("merge")) {
+            layout = "hall";
+        }
 
         String primary = forced ? "n"
                 : present.get((int) umod(hb >>> 20, present.size()));
@@ -252,17 +257,27 @@ public final class Level0Plan {
         int iz0 = z0 + 1, iz1 = z1 - 1;
         if (!layout.equals("hall") && !layout.equals("suite")) {
             int along = vertical ? ix1 - ix0 : iz1 - iz0;
-            if (along < 26) layout = "hall";
+            if (along < 13) layout = "hall";
         }
 
         Builder b = new Builder(i, j);
-        int level = blockLevel(i, j);
         switch (layout) {
             case "hall" -> buildHall(b, ix0, ix1, iz0, iz1, present, sn, se, ss, sw, forced);
             case "suite" -> buildSuite(b, ix0, ix1, iz0, iz1, present, forced);
             case "merge" -> buildMerge(b, ix0, ix1, iz0, iz1, present, primary, vertical,
                     x0, x1, z0, z1);
             default -> buildOffices(b, ix0, ix1, iz0, iz1, present, sn, se, ss, sw, vertical, primary, forced);
+        }
+        if (level != 0) {
+            // One stair run per block: crossing runs cut off the corners of small halls.
+            boolean kept = false;
+            for (int k = b.doors.size() - 1; k >= 0; k--) {
+                Door d = b.doors.get(k);
+                boolean street = d.x0() == x0 || d.x1() == x1 || d.z0() == z0 || d.z1() == z1;
+                if (!street) continue;
+                if (kept) b.doors.remove(k);
+                else kept = true;
+            }
         }
         List<StairStep> stairs = new ArrayList<>();
         if (level != 0) {
@@ -399,18 +414,18 @@ public final class Level0Plan {
             boolean alongX = w >= d;
             if (alongX) {
                 int zc = (rz0 + rz1) / 2 + hashNum(i, j, SALT_DETAIL) % 5 - 2;
-                for (int x = rx0 + 3; x <= rx1 - 3; x += cs) addColumn(x, zc, spawnBlock, rx0, rx1, rz0, rz1);
-                if (d > 24) {
-                    int z2 = zc + Math.max(7, d / 3);
-                    if (z2 < rz1 - 2) for (int x = rx0 + 3; x <= rx1 - 3; x += cs)
+                for (int x = rx0 + 2; x <= rx1 - 2; x += cs) addColumn(x, zc, spawnBlock, rx0, rx1, rz0, rz1);
+                if (d > 12) {
+                    int z2 = zc + Math.max(4, d / 3);
+                    if (z2 < rz1 - 2) for (int x = rx0 + 2; x <= rx1 - 2; x += cs)
                         addColumn(x, z2, spawnBlock, rx0, rx1, rz0, rz1);
                 }
             } else {
                 int xc = (rx0 + rx1) / 2 + hashNum(i, j, SALT_DETAIL) % 5 - 2;
-                for (int z = rz0 + 3; z <= rz1 - 3; z += cs) addColumn(xc, z, spawnBlock, rx0, rx1, rz0, rz1);
-                if (w > 24) {
-                    int x2 = xc + Math.max(7, w / 3);
-                    if (x2 < rx1 - 2) for (int z = rz0 + 3; z <= rz1 - 3; z += cs)
+                for (int z = rz0 + 2; z <= rz1 - 2; z += cs) addColumn(xc, z, spawnBlock, rx0, rx1, rz0, rz1);
+                if (w > 12) {
+                    int x2 = xc + Math.max(4, w / 3);
+                    if (x2 < rx1 - 2) for (int z = rz0 + 2; z <= rz1 - 2; z += cs)
                         addColumn(x2, z, spawnBlock, rx0, rx1, rz0, rz1);
                 }
             }
@@ -427,20 +442,20 @@ public final class Level0Plan {
             if (PARTITION_CHANCE <= 0) return;
             if (hashNum(i * 13L + roomIdx, j, SALT_DETAIL) % 100 >= PARTITION_CHANCE) return;
             int side = hashNum(i, j + roomIdx, SALT_DETAIL) % 4;
-            int len = 4 + hashNum(i + roomIdx, j, SALT_DETAIL) % 5;
+            int len = 2 + hashNum(i + roomIdx, j, SALT_DETAIL) % 3;
             int w = r.x1() - r.x0(), d = r.z1() - r.z0();
             Solid s = null;
-            if (side == 0 && w > len + 6) {
-                int x = r.x0() + 3 + hashNum(roomIdx, i, SALT_DETAIL) % (w - len - 4);
+            if (side == 0 && w > len + 3) {
+                int x = r.x0() + 2 + hashNum(roomIdx, i, SALT_DETAIL) % (w - len - 4);
                 s = new Solid(x, x, r.z0(), Math.min(r.z0() + len, r.z1() - 3));
-            } else if (side == 1 && d > len + 6) {
-                int z = r.z0() + 3 + hashNum(roomIdx, j, SALT_DETAIL) % (d - len - 4);
+            } else if (side == 1 && d > len + 3) {
+                int z = r.z0() + 2 + hashNum(roomIdx, j, SALT_DETAIL) % (d - len - 4);
                 s = new Solid(r.x1(), r.x1(), z, z + len);
-            } else if (side == 2 && d > len + 6) {
-                int z = r.z0() + 3 + hashNum(roomIdx, i + 7, SALT_DETAIL) % (d - len - 4);
+            } else if (side == 2 && d > len + 3) {
+                int z = r.z0() + 2 + hashNum(roomIdx, i + 7, SALT_DETAIL) % (d - len - 4);
                 s = new Solid(r.x0(), r.x0(), z, z + len);
-            } else if (w > len + 6) {
-                int x = r.x0() + 3 + hashNum(roomIdx, j + 9, SALT_DETAIL) % (w - len - 4);
+            } else if (w > len + 3) {
+                int x = r.x0() + 2 + hashNum(roomIdx, j + 9, SALT_DETAIL) % (w - len - 4);
                 s = new Solid(x, x, Math.max(r.z1() - len, r.z0() + 3), r.z1());
             }
             if (s == null) return;
@@ -470,11 +485,11 @@ public final class Level0Plan {
         for (String side : present) b.streetDoor(9, r, side, ix0 - 1, ix1 + 1, iz0 - 1, iz1 + 1);
         b.columns(r, forced, ix0, ix1, iz0, iz1);
 
-        int sw = Math.min(10, Math.max(6, (ix1 - ix0) / 3));
-        int sd = Math.min(10, Math.max(6, (iz1 - iz0) / 3));
+        int sw = 6, sd = 6;
+        if (ix1 - ix0 < sw + 2 || iz1 - iz0 < sd + 2) return;
         int corner = b.hashNum(b.i, b.j, SALT_DETAIL) % 4;
-        int nx0 = corner == 0 || corner == 3 ? ix0 + 3 : ix1 - sw - 3;
-        int nz0 = corner < 2 ? iz0 + 3 : iz1 - sd - 3;
+        int nx0 = corner == 0 || corner == 3 ? ix0 + 2 : ix1 - sw - 2;
+        int nz0 = corner < 2 ? iz0 + 2 : iz1 - sd - 2;
         int nx1 = nx0 + sw, nz1 = nz0 + sd;
         if (nx1 - nx0 < 5 || nz1 - nz0 < 5) return;
         b.solids.add(new Solid(nx0, nx1, nz0, nz0));
@@ -495,8 +510,8 @@ public final class Level0Plan {
             int bx0, int bx1, int bz0, int bz1) {
         int cut;
         if (vertical) {
-            cut = ix0 + (ix1 - ix0) / 2 + b.hashNum(b.i, b.j, SALT_DETAIL) % 9 - 4;
-            cut = clampInt(cut, ix0 + 8, ix1 - 8);
+            cut = ix0 + (ix1 - ix0) / 2 + b.hashNum(b.i, b.j, SALT_DETAIL) % 5 - 2;
+            cut = clampInt(cut, ix0 + 6, ix1 - 6);
             Room a = new Room(ix0, cut - 1, iz0, iz1, "MERGED ROOMS");
             Room c = new Room(cut + 1, ix1, iz0, iz1, "MERGED ROOMS");
             b.rooms.add(a);
@@ -514,8 +529,8 @@ public final class Level0Plan {
             b.partitions(a, 1);
             b.partitions(c, 2);
         } else {
-            cut = iz0 + (iz1 - iz0) / 2 + b.hashNum(b.i, b.j, SALT_DETAIL) % 9 - 4;
-            cut = clampInt(cut, iz0 + 8, iz1 - 8);
+            cut = iz0 + (iz1 - iz0) / 2 + b.hashNum(b.i, b.j, SALT_DETAIL) % 5 - 2;
+            cut = clampInt(cut, iz0 + 6, iz1 - 6);
             Room a = new Room(ix0, ix1, iz0, cut - 1, "MERGED ROOMS");
             Room c = new Room(ix0, ix1, cut + 1, iz1, "MERGED ROOMS");
             b.rooms.add(a);
@@ -539,7 +554,7 @@ public final class Level0Plan {
             List<String> present, boolean sn, boolean se, boolean ss, boolean sw,
             boolean vertical, String primary, boolean forced) {
         int crossLen = vertical ? ix1 - ix0 : iz1 - iz0;
-        if (crossLen < 20) {
+        if (crossLen < 10) {
             Room r = new Room(ix0, ix1, iz0, iz1, "OPEN HALL");
             b.rooms.add(r);
             for (String side : present) b.streetDoor(9, r, side, ix0 - 1, ix1 + 1, iz0 - 1, iz1 + 1);
@@ -548,7 +563,7 @@ public final class Level0Plan {
         }
         int corridorW = clampInt(DOOR_WIDTH + 1, 3, 5);
         int crossStart = vertical ? ix0 : iz0;
-        int c0 = crossStart + 4 + b.hashNum(b.i, b.j, SALT_DETAIL) % Math.max(1, crossLen - 8 - corridorW);
+        int c0 = crossStart + 2 + b.hashNum(b.i, b.j, SALT_DETAIL) % Math.max(1, crossLen - 4 - corridorW);
         int c1 = c0 + corridorW - 1;
         int bx0 = ix0 - 1, bx1 = ix1 + 1, bz0 = iz0 - 1, bz1 = iz1 + 1;
         Room corridor = vertical
@@ -580,10 +595,10 @@ public final class Level0Plan {
     private void carveStrip(Builder b, int x0, int x1, int z0, int z1, boolean alongZ,
             int wallPos, int stripIdx, List<String> present, String primary,
             int ix0, int ix1, int iz0, int iz1, int bx0, int bx1, int bz0, int bz1) {
-        if (x1 - x0 < 5 || z1 - z0 < 5) return;
+        if (x1 - x0 < 3 || z1 - z0 < 3) return;
         int longLen = alongZ ? z1 - z0 + 1 : x1 - x0 + 1;
         int n = 1 + b.hashNum(b.i + stripIdx * 17L, b.j, SALT_DETAIL) % 3;
-        n = Math.min(n, Math.max(1, longLen / 12));
+        n = Math.min(n, Math.max(1, longLen / 6));
         List<int[]> spans = new ArrayList<>();
         if (n <= 1) {
             spans.add(new int[] { 0, longLen - 1 });
@@ -593,8 +608,8 @@ public final class Level0Plan {
             for (int k = 1; k < n; k++) {
                 int base = Math.round((float) longLen * k / n);
                 int jit = b.hashNum(b.i + k + stripIdx, b.j, SALT_DETAIL) % 7 - 3;
-                int lo = (prev < 0 ? 0 : prev + 1) + 10;
-                int hi = longLen - 10 * (n - k);
+                int lo = (prev < 0 ? 0 : prev + 1) + 5;
+                int hi = longLen - 5 * (n - k);
                 int c = clampInt(base + jit, lo, Math.max(lo, hi));
                 cuts.add(c);
                 prev = c;
@@ -609,7 +624,7 @@ public final class Level0Plan {
         int idx2 = 0;
         for (int[] sp : spans) {
             idx2++;
-            if (sp[1] - sp[0] + 1 < 8) continue;
+            if (sp[1] - sp[0] + 1 < 6) continue;
             int rx0 = alongZ ? x0 : x0 + sp[0];
             int rx1 = alongZ ? x1 : x0 + sp[1];
             int rz0 = alongZ ? z0 + sp[0] : z0;
@@ -627,9 +642,9 @@ public final class Level0Plan {
         int d1 = alongZ ? rx1 : rz1;
         List<Room> parts = new ArrayList<>();
         int splitWall = -1;
-        if (d1 - d0 >= 18) {
-            splitWall = d0 + 4 + b.hashNum(b.i + idx2, b.j + stripIdx, SALT_DETAIL)
-                    % Math.max(1, d1 - d0 - 8);
+        if (d1 - d0 >= 9) {
+            splitWall = d0 + 2 + b.hashNum(b.i + idx2, b.j + stripIdx, SALT_DETAIL)
+                    % Math.max(1, d1 - d0 - 4);
             boolean outerPositive = wallPos > (d0 + d1) / 2;
             int oLo = outerPositive ? d0 : splitWall + 1;
             int oHi = outerPositive ? splitWall - 1 : d1;
