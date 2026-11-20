@@ -295,18 +295,18 @@
         }
       };
       if (alongX) {
-        const zc = Math.floor((r.z0 + r.z1) / 2) + (hashNum(i, j, SALT_DETAIL) % 5) - 2;
-        for (let x = r.x0 + 3; x <= r.x1 - 3; x += cs) addCol(x, zc);
-        if (d > 24) {
-          const z2 = zc + Math.max(7, Math.floor(d / 3));
-          if (z2 < r.z1 - 2) for (let x = r.x0 + 3; x <= r.x1 - 3; x += cs) addCol(x, z2);
+        const zc = Math.trunc((r.z0 + r.z1) / 2) + (hashNum(i, j, SALT_DETAIL) % 5) - 2;
+        for (let x = r.x0 + 2; x <= r.x1 - 2; x += cs) addCol(x, zc);
+        if (d > 12) {
+          const z2 = zc + Math.max(4, Math.floor(d / 3));
+          if (z2 < r.z1 - 2) for (let x = r.x0 + 2; x <= r.x1 - 2; x += cs) addCol(x, z2);
         }
       } else {
-        const xc = Math.floor((r.x0 + r.x1) / 2) + (hashNum(i, j, SALT_DETAIL) % 5) - 2;
-        for (let z = r.z0 + 3; z <= r.z1 - 3; z += cs) addCol(xc, z);
-        if (w > 24) {
-          const x2 = xc + Math.max(7, Math.floor(w / 3));
-          if (x2 < r.x1 - 2) for (let z = r.z0 + 3; z <= r.z1 - 3; z += cs) addCol(x2, z);
+        const xc = Math.trunc((r.x0 + r.x1) / 2) + (hashNum(i, j, SALT_DETAIL) % 5) - 2;
+        for (let z = r.z0 + 2; z <= r.z1 - 2; z += cs) addCol(xc, z);
+        if (w > 12) {
+          const x2 = xc + Math.max(4, Math.floor(w / 3));
+          if (x2 < r.x1 - 2) for (let z = r.z0 + 2; z <= r.z1 - 2; z += cs) addCol(x2, z);
         }
       }
     }
@@ -315,21 +315,21 @@
       if (CFG.partitionChance <= 0) return;
       if (hashNum(i * 13 + roomIdx, j, SALT_DETAIL) % 100 >= CFG.partitionChance) return;
       const side = hashNum(i, j + roomIdx, SALT_DETAIL) % 4;
-      const len = 4 + hashNum(i + roomIdx, j, SALT_DETAIL) % 5;
+      const len = 2 + hashNum(i + roomIdx, j, SALT_DETAIL) % 3;
       const w = r.x1 - r.x0, d = r.z1 - r.z0;
       let s = null;
-      if (side === 0 && w > len + 6) {
-        const x = r.x0 + 3 + hashNum(roomIdx, i, SALT_DETAIL) % (w - len - 4);
+      if (side === 0 && w > len + 4) {
+        const x = r.x0 + 2 + hashNum(roomIdx, i, SALT_DETAIL) % (w - len - 4);
         s = { x0: x, x1: x, z0: r.z0, z1: Math.min(r.z0 + len, r.z1 - 3) };
-      } else if (side === 1 && d > len + 6) {
-        const z = r.z0 + 3 + hashNum(roomIdx, j, SALT_DETAIL) % (d - len - 4);
+      } else if (side === 1 && d > len + 4) {
+        const z = r.z0 + 2 + hashNum(roomIdx, j, SALT_DETAIL) % (d - len - 4);
         s = { x0: r.x1, x1: r.x1, z0: z, z1: z + len };
-      } else if (side === 2 && d > len + 6) {
-        const z = r.z0 + 3 + hashNum(roomIdx, i + 7, SALT_DETAIL) % (d - len - 4);
+      } else if (side === 2 && d > len + 4) {
+        const z = r.z0 + 2 + hashNum(roomIdx, i + 7, SALT_DETAIL) % (d - len - 4);
         s = { x0: r.x0, x1: r.x0, z0: z, z1: z + len };
-      } else if (w > len + 6) {
-        const x = r.x0 + 3 + hashNum(roomIdx, j + 9, SALT_DETAIL) % (w - len - 4);
-        s = { x0: x, x1: x, z0: r.z1, z1: Math.max(r.z1 - len, r.z0 + 3) };
+      } else if (w > len + 4) {
+        const x = r.x0 + 2 + hashNum(roomIdx, j + 9, SALT_DETAIL) % (w - len - 4);
+        s = { x0: x, x1: x, z0: Math.max(r.z1 - len, r.z0 + 3), z1: r.z1 };
       }
       if (!s) return;
       // never wall off a doorway
@@ -458,8 +458,8 @@
             for (let k = 1; k < n; k++) {
               const base = Math.round(long * k / n);
               const jit = (hashNum(i + k + stripIdx, j, SALT_DETAIL) % 7) - 3;
-              const lo = (prev < 0 ? 0 : prev + 1) + 10;
-              const hi = long - 10 * (n - k);
+              const lo = (prev < 0 ? 0 : prev + 1) + 5;
+              const hi = long - 5 * (n - k);
               const c = clampInt(base + jit, lo, Math.max(lo, hi));
               cuts.push(c);
               prev = c;
@@ -471,7 +471,7 @@
           let idx2 = 0;
           for (const [s0, s1] of spans) {
             idx2++;
-            if (s1 - s0 + 1 < 8) continue;
+            if (s1 - s0 + 1 < 6) continue;
             const r = alongZ
               ? { x0, x1, z0: z0 + s0, z1: z0 + s1 }
               : { x0: x0 + s0, x1: x0 + s1, z0, z1 };
@@ -481,8 +481,8 @@
             const d1 = alongZ ? r.x1 : r.z1;
             const parts = [];
             let splitWall = -1;
-            if (d1 - d0 >= 18) {
-              splitWall = d0 + 4 + hashNum(i + idx2, j + stripIdx, SALT_DETAIL) % Math.max(1, d1 - d0 - 8);
+            if (d1 - d0 >= 9) {
+              splitWall = d0 + 2 + hashNum(i + idx2, j + stripIdx, SALT_DETAIL) % Math.max(1, d1 - d0 - 4);
               const outerPositive = wallPos > (d0 + d1) / 2;
               const outerSpan = outerPositive ? [d0, splitWall - 1] : [splitWall + 1, d1];
               const innerSpan = outerPositive ? [splitWall + 1, d1] : [d0, splitWall - 1];
@@ -543,33 +543,47 @@
       }
     }
 
-    const level = blockLevel(i, j);
+    if (level !== 0) {
+      // One stair run per block: crossing runs cut off the corners of small halls.
+      let kept = false;
+      for (let k = doors.length - 1; k >= 0; k--) {
+        const d = doors[k];
+        const street = d.x0 === b.x0 || d.x1 === b.x1 || d.z0 === b.z0 || d.z1 === b.z1;
+        if (!street) continue;
+        if (kept) doors.splice(k, 1);
+        else kept = true;
+      }
+    }
     const stairs = [];
     if (level !== 0) {
-      const sign = Math.sign(level);
-      const steps = 2 * CFG.levelHeight;
+      const up = level > 0;
+      const roomY = BASE_FLOOR_Y + CFG.levelHeight * level;
       for (const d of doors) {
         const street = d.x0 === b.x0 || d.x1 === b.x1 || d.z0 === b.z0 || d.z1 === b.z1;
         if (!street) continue;
         if (d.z0 === b.z0) {
-          for (let k = 0; k < steps; k++) {
-            const z = b.z0 + 1 + k, fs = STREET_HALF + sign * (k + 1);
-            for (let x = d.x0; x <= d.x1; x++) stairs.push({ x, z, s: fs });
+          for (let k = 0; k < CFG.levelHeight; k++) {
+            const z = b.z0 + 1 + k;
+            const y = up ? roomY - CFG.levelHeight + 1 + k : roomY + CFG.levelHeight - k;
+            for (let x = d.x0; x <= d.x1; x++) stairs.push({ x, z, y, facing: up ? "s" : "n" });
           }
         } else if (d.z1 === b.z1) {
-          for (let k = 0; k < steps; k++) {
-            const z = b.z1 - 1 - k, fs = STREET_HALF + sign * (k + 1);
-            for (let x = d.x0; x <= d.x1; x++) stairs.push({ x, z, s: fs });
+          for (let k = 0; k < CFG.levelHeight; k++) {
+            const z = b.z1 - 1 - k;
+            const y = up ? roomY - CFG.levelHeight + 1 + k : roomY + CFG.levelHeight - k;
+            for (let x = d.x0; x <= d.x1; x++) stairs.push({ x, z, y, facing: up ? "n" : "s" });
           }
         } else if (d.x0 === b.x0) {
-          for (let k = 0; k < steps; k++) {
-            const x = b.x0 + 1 + k, fs = STREET_HALF + sign * (k + 1);
-            for (let z = d.z0; z <= d.z1; z++) stairs.push({ x, z, s: fs });
+          for (let k = 0; k < CFG.levelHeight; k++) {
+            const x = b.x0 + 1 + k;
+            const y = up ? roomY - CFG.levelHeight + 1 + k : roomY + CFG.levelHeight - k;
+            for (let z = d.z0; z <= d.z1; z++) stairs.push({ x, z, y, facing: up ? "e" : "w" });
           }
         } else if (d.x1 === b.x1) {
-          for (let k = 0; k < steps; k++) {
-            const x = b.x1 - 1 - k, fs = STREET_HALF + sign * (k + 1);
-            for (let z = d.z0; z <= d.z1; z++) stairs.push({ x, z, s: fs });
+          for (let k = 0; k < CFG.levelHeight; k++) {
+            const x = b.x1 - 1 - k;
+            const y = up ? roomY - CFG.levelHeight + 1 + k : roomY + CFG.levelHeight - k;
+            for (let z = d.z0; z <= d.z1; z++) stairs.push({ x, z, y, facing: up ? "w" : "e" });
           }
         }
       }
@@ -685,7 +699,7 @@
         }
         for (const st of b.stairs) {
           if (st.x < x0 || st.x >= x0 + W || st.z < z0 || st.z >= z0 + W) continue;
-          open(st.x, st.z, 4, st.s);
+          open(st.x, st.z, 4, 2 * st.y - 1);
         }
       }
     }
@@ -696,8 +710,8 @@
     if (spawnBlock && spawnBlock.rooms.length) {
       const r = spawnBlock.rooms[0];
       spawn = {
-        x: Math.floor((r.x0 + r.x1) / 2),
-        z: Math.floor((r.z0 + r.z1) / 2),
+        x: Math.trunc((r.x0 + r.x1) / 2),
+        z: Math.trunc((r.z0 + r.z1) / 2),
         y: Math.round(levelHalf(spawnBlock.level) / 2)
       };
     }
@@ -717,16 +731,18 @@
           const idx = queue[head++];
           const px = idx % W, pz = (idx - px) / W;
           const s = floor[idx];
-          if (px > 0) tryStep(idx - 1, s);
-          if (px < W - 1) tryStep(idx + 1, s);
-          if (pz > 0) tryStep(idx - W, s);
-          if (pz < W - 1) tryStep(idx + W, s);
+          if (px > 0) tryStep(idx, idx - 1, s);
+          if (px < W - 1) tryStep(idx, idx + 1, s);
+          if (pz > 0) tryStep(idx, idx - W, s);
+          if (pz < W - 1) tryStep(idx, idx + W, s);
         }
-        function tryStep(ni, s) {
+        function tryStep(from, ni, s) {
           if (visited[ni]) return;
           const ns = floor[ni];
           if (ns === EMPTY) return;
-          if (ns - s <= 1) {
+          // one stair block hides two half-steps in the same column
+          const climb = kind[from] === 4 && kind[ni] === 4 ? 2 : 1;
+          if (ns - s <= climb) {
             visited[ni] = 1;
             queue[tail++] = ni;
           }

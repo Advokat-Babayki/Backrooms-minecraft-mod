@@ -61,9 +61,9 @@ needs network access for NeoForge and Parchment.
    floor + 4, or floor + 5 when a bottom slab is present. Never carve outside the
    mass, and never let a raised district's ceiling exceed `FILL_TOP_Y`.
 5. **Reachability.** Doors are 3 blocks wide (`DOOR_WIDTH`). Every room must be
-   reachable from spawn. Raised/lowered blocks get 6 half-step stairs at street
-   doors; solids that would cover a stair are dropped in `computeBlock`. Keep it
-   that way.
+   reachable from spawn. Raised/lowered blocks get `LEVEL_HEIGHT` carpet stair
+   blocks at one street door; solids that would cover a stair are dropped in
+   `computeBlock`. Keep it that way.
 6. **Hum.** The biome has exactly one sound: `ambient_sound: backrooms:hum`. Do
    not add `additions_sound` or `mood_sound` — they restart the loop at full
    volume and caused the abrupt hum fixed in commit `8a0a07c`.

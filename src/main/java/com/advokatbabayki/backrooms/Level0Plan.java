@@ -53,8 +53,8 @@ public final class Level0Plan {
     /** Solid furniture inside a carved room: a column or a partial partition. */
     public record Solid(int x0, int x1, int z0, int z1) {}
 
-    /** One stair tread column at a fixed half-block floor height. */
-    public record StairStep(int x, int z, int s) {}
+    /** One carpet stair block: its block y and the side it rises toward. */
+    public record StairStep(int x, int z, int y, String facing) {}
 
     public record Block(int i, int j, int x0, int x1, int z0, int z1, String layout,
             int level, List<Room> rooms, List<Door> doors, List<Solid> solids,
@@ -281,34 +281,34 @@ public final class Level0Plan {
         }
         List<StairStep> stairs = new ArrayList<>();
         if (level != 0) {
-            int sign = Integer.signum(level);
-            int steps = 2 * LEVEL_HEIGHT;
+            boolean up = level > 0;
+            int roomY = BASE_FLOOR_Y + LEVEL_HEIGHT * level;
             for (Door d : b.doors) {
                 boolean street = d.x0() == x0 || d.x1() == x1 || d.z0() == z0 || d.z1() == z1;
                 if (!street) continue;
                 if (d.z0() == z0) { // door in the north wall, stairs go south
-                    for (int k = 0; k < steps; k++) {
+                    for (int k = 0; k < LEVEL_HEIGHT; k++) {
                         int z = z0 + 1 + k;
-                        int fs = STREET_FLOOR_HALF + sign * (k + 1);
-                        for (int x = d.x0(); x <= d.x1(); x++) stairs.add(new StairStep(x, z, fs));
+                        int y = up ? roomY - LEVEL_HEIGHT + 1 + k : roomY + LEVEL_HEIGHT - k;
+                        for (int x = d.x0(); x <= d.x1(); x++) stairs.add(new StairStep(x, z, y, up ? "s" : "n"));
                     }
                 } else if (d.z1() == z1) { // south wall, stairs go north
-                    for (int k = 0; k < steps; k++) {
+                    for (int k = 0; k < LEVEL_HEIGHT; k++) {
                         int z = z1 - 1 - k;
-                        int fs = STREET_FLOOR_HALF + sign * (k + 1);
-                        for (int x = d.x0(); x <= d.x1(); x++) stairs.add(new StairStep(x, z, fs));
+                        int y = up ? roomY - LEVEL_HEIGHT + 1 + k : roomY + LEVEL_HEIGHT - k;
+                        for (int x = d.x0(); x <= d.x1(); x++) stairs.add(new StairStep(x, z, y, up ? "n" : "s"));
                     }
                 } else if (d.x0() == x0) { // west wall, stairs go east
-                    for (int k = 0; k < steps; k++) {
+                    for (int k = 0; k < LEVEL_HEIGHT; k++) {
                         int x = x0 + 1 + k;
-                        int fs = STREET_FLOOR_HALF + sign * (k + 1);
-                        for (int z = d.z0(); z <= d.z1(); z++) stairs.add(new StairStep(x, z, fs));
+                        int y = up ? roomY - LEVEL_HEIGHT + 1 + k : roomY + LEVEL_HEIGHT - k;
+                        for (int z = d.z0(); z <= d.z1(); z++) stairs.add(new StairStep(x, z, y, up ? "e" : "w"));
                     }
                 } else if (d.x1() == x1) { // east wall, stairs go west
-                    for (int k = 0; k < steps; k++) {
+                    for (int k = 0; k < LEVEL_HEIGHT; k++) {
                         int x = x1 - 1 - k;
-                        int fs = STREET_FLOOR_HALF + sign * (k + 1);
-                        for (int z = d.z0(); z <= d.z1(); z++) stairs.add(new StairStep(x, z, fs));
+                        int y = up ? roomY - LEVEL_HEIGHT + 1 + k : roomY + LEVEL_HEIGHT - k;
+                        for (int z = d.z0(); z <= d.z1(); z++) stairs.add(new StairStep(x, z, y, up ? "w" : "e"));
                     }
                 }
             }
@@ -445,16 +445,16 @@ public final class Level0Plan {
             int len = 2 + hashNum(i + roomIdx, j, SALT_DETAIL) % 3;
             int w = r.x1() - r.x0(), d = r.z1() - r.z0();
             Solid s = null;
-            if (side == 0 && w > len + 3) {
+            if (side == 0 && w > len + 4) {
                 int x = r.x0() + 2 + hashNum(roomIdx, i, SALT_DETAIL) % (w - len - 4);
                 s = new Solid(x, x, r.z0(), Math.min(r.z0() + len, r.z1() - 3));
-            } else if (side == 1 && d > len + 3) {
+            } else if (side == 1 && d > len + 4) {
                 int z = r.z0() + 2 + hashNum(roomIdx, j, SALT_DETAIL) % (d - len - 4);
                 s = new Solid(r.x1(), r.x1(), z, z + len);
-            } else if (side == 2 && d > len + 3) {
+            } else if (side == 2 && d > len + 4) {
                 int z = r.z0() + 2 + hashNum(roomIdx, i + 7, SALT_DETAIL) % (d - len - 4);
                 s = new Solid(r.x0(), r.x0(), z, z + len);
-            } else if (w > len + 3) {
+            } else if (w > len + 4) {
                 int x = r.x0() + 2 + hashNum(roomIdx, j + 9, SALT_DETAIL) % (w - len - 4);
                 s = new Solid(x, x, Math.max(r.z1() - len, r.z0() + 3), r.z1());
             }

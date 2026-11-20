@@ -359,7 +359,7 @@
   "use strict";
   const Core = window.Level0Core;
   const DEFAULTS = Core.DEFAULT_CONFIG;
-  const STORE_KEY = "backrooms.level0.preview.v4";
+  const STORE_KEY = "backrooms.level0.preview.v5";
 
   const state = {
     config: Object.assign({}, DEFAULTS),
@@ -380,10 +380,10 @@
     },
     {
       title: "Улицы (коридоры)",
-      hint: "Прямые коридоры с шагом около сотни блоков. Шаг и разброс ломают регулярность; процент сегментов оставляет обрывы и тупики.",
+      hint: "Прямые коридоры с шагом около тридцати блоков. Шаг и разброс ломают регулярность; процент сегментов оставляет обрывы и тупики.",
       items: [
-        { key: "pitch", label: "Шаг улиц", min: 64, max: 128, step: 4 },
-        { key: "jitter", label: "Разброс улиц", min: 0, max: 30, step: 2 },
+        { key: "pitch", label: "Шаг улиц", min: 24, max: 128, step: 1 },
+        { key: "jitter", label: "Разброс улиц", min: 0, max: 30, step: 1 },
         { key: "streetWidthMax", label: "Макс. ширина коридора", min: 3, max: 9, step: 2 },
         { key: "segmentChance", label: "Сегментов существует", min: 50, max: 95, step: 5, fmt: v => v + "%" }
       ]

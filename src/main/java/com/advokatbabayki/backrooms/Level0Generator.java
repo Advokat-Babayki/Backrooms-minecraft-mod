@@ -7,6 +7,7 @@ import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.LevelHeightAccessor;
@@ -16,6 +17,7 @@ import net.minecraft.world.level.biome.BiomeManager;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.SlabBlock;
+import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.SlabType;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -69,6 +71,7 @@ public class Level0Generator extends ChunkGenerator {
         BlockState light = BackroomsBlocks.FLUORESCENT_PANEL.get().defaultBlockState();
         BlockState air = Blocks.AIR.defaultBlockState();
         BlockState slabBottom = BackroomsBlocks.WALLPAPER_SLAB.get().defaultBlockState();
+        BlockState carpetStair = BackroomsBlocks.CARPET_STAIRS.get().defaultBlockState();
 
         ChunkPos pos = chunk.getPos();
         int baseX = pos.getMinBlockX();
@@ -173,8 +176,8 @@ public class Level0Generator extends ChunkGenerator {
                 for (Level0Plan.StairStep step : block.stairs()) {
                     if (step.x() < baseX || step.x() > baseX + 15
                             || step.z() < baseZ || step.z() > baseZ + 15) continue;
-                    carveColumn(chunk, step.x(), step.z(), step.s(),
-                            carpet, ceilingTile, light, air, slabBottom);
+                    carveStair(chunk, step, blockHalf / 2, carpetStair,
+                            wallpaper, ceilingTile, light, air);
                 }
             }
         }
@@ -200,6 +203,34 @@ public class Level0Generator extends ChunkGenerator {
             chunk.setBlockState(new BlockPos(x, y0 + 1, z),
                     slabBottom.setValue(SlabBlock.TYPE, SlabType.BOTTOM), false);
         }
+        BlockState ceilingState = Math.floorMod(x, LIGHT_EVERY) == 3
+                && Math.floorMod(z, LIGHT_EVERY) == 3 ? light : ceilingTile;
+        chunk.setBlockState(new BlockPos(x, ceilY, z), ceilingState, false);
+    }
+
+    /** One carpet stair block: mass under the tread, air above it, ceiling over that. */
+    private void carveStair(ChunkAccess chunk, Level0Plan.StairStep step, int roomY,
+            BlockState stair, BlockState wallpaper, BlockState ceilingTile, BlockState light,
+            BlockState air) {
+        int x = step.x();
+        int z = step.z();
+        if (x < chunk.getPos().getMinBlockX() || x > chunk.getPos().getMaxBlockX()
+                || z < chunk.getPos().getMinBlockZ() || z > chunk.getPos().getMaxBlockZ()) return;
+        int y = step.y();
+        int ceilY = y + 4;
+        for (int fy = roomY; fy < y; fy++) {
+            chunk.setBlockState(new BlockPos(x, fy, z), wallpaper, false);
+        }
+        for (int ay = y + 1; ay < ceilY; ay++) {
+            chunk.setBlockState(new BlockPos(x, ay, z), air, false);
+        }
+        Direction facing = switch (step.facing()) {
+            case "n" -> Direction.NORTH;
+            case "s" -> Direction.SOUTH;
+            case "e" -> Direction.EAST;
+            default -> Direction.WEST;
+        };
+        chunk.setBlockState(new BlockPos(x, y, z), stair.setValue(StairBlock.FACING, facing), false);
         BlockState ceilingState = Math.floorMod(x, LIGHT_EVERY) == 3
                 && Math.floorMod(z, LIGHT_EVERY) == 3 ? light : ceilingTile;
         chunk.setBlockState(new BlockPos(x, ceilY, z), ceilingState, false);
