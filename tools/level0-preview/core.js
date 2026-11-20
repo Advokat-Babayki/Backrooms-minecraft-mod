@@ -28,6 +28,7 @@
   const SALT_BLOCK = 0x6F708192A3B4C5D6n;
   const SALT_DOOR = 0x708192A3B4C5D6E7n;
   const SALT_DETAIL = 0x8192A3B4C5D6E7F8n;
+  const SALT_LEVEL = 0x92A3B4C5D6E7F809n;
 
   const EMPTY = -32768;
   const BASE_FLOOR_Y = 64;
@@ -45,8 +46,9 @@
     wideOpening: 6,
     columnSpacing: 6,
     partitionChance: 40,
-    floorSpacing: 96,
-    floorLevels: 3
+    districtSize: 2,
+    raisedChance: 30,
+    levelHeight: 3
   });
 
   const LAYOUT_NAMES = {
@@ -77,37 +79,22 @@
     return h;
   }
 
-  function makeField(spacing, salt, minX, minZ, size) {
-    const iMin = Math.floor(minX / spacing) - 1;
-    const iMax = Math.floor((minX + size) / spacing) + 1;
-    const jMin = Math.floor(minZ / spacing) - 1;
-    const jMax = Math.floor((minZ + size) / spacing) + 1;
-    const nx = iMax - iMin + 1;
-    const nz = jMax - jMin + 1;
-    const vals = new Float64Array(nx * nz);
-    for (let j = 0; j < nz; j++) {
-      for (let i = 0; i < nx; i++) {
-        vals[j * nx + i] = Number(hash64(iMin + i, jMin + j, salt) >> 11n) / 9007199254740992;
-      }
-    }
-    return function (x, z) {
-      const fx = x / spacing, fz = z / spacing;
-      const ix = Math.floor(fx), iz = Math.floor(fz);
-      const tx = smooth(fx - ix), tz = smooth(fz - iz);
-      const ai = ix - iMin, aj = iz - jMin;
-      const v00 = vals[aj * nx + ai], v10 = vals[aj * nx + ai + 1];
-      const v01 = vals[(aj + 1) * nx + ai], v11 = vals[(aj + 1) * nx + ai + 1];
-      return lerp(lerp(v00, v10, tx), lerp(v01, v11, tx), tz);
-    };
+  const STREET_HALF = BASE_FLOOR_Y * 2;
+
+  /** Half-block floor of a whole height level. Level 0 is y64. */
+  function levelHalf(level) {
+    return STREET_HALF + 2 * CFG.levelHeight * level;
   }
 
-  function floorHalf(x, z) {
-    const q = F(x, z) * (CFG.floorLevels - 1);
-    return Math.round((BASE_FLOOR_Y + q * 3) * 2);
-  }
-
-  function floorSurface(x, z) {
-    return Math.round(floorHalf(x, z) / 2);
+  /** District level: most blocks 0, some whole districts +1/-1. */
+  function blockLevel(i, j) {
+    if (i === SPAWN_I && j === SPAWN_J) return 0;
+    const di = Math.floor(i / CFG.districtSize);
+    const dj = Math.floor(j / CFG.districtSize);
+    const v = Number(hash64(di, dj, SALT_LEVEL) % 100n);
+    if (v < Math.floor(CFG.raisedChance / 2)) return 1;
+    if (v < CFG.raisedChance) return -1;
+    return 0;
   }
 
   // ---- Streets ----
@@ -549,9 +536,47 @@
       }
     }
 
+    const level = blockLevel(i, j);
+    const stairs = [];
+    if (level !== 0) {
+      const sign = Math.sign(level);
+      const steps = 2 * CFG.levelHeight;
+      for (const d of doors) {
+        const street = d.x0 === b.x0 || d.x1 === b.x1 || d.z0 === b.z0 || d.z1 === b.z1;
+        if (!street) continue;
+        if (d.z0 === b.z0) {
+          for (let k = 0; k < steps; k++) {
+            const z = b.z0 + 1 + k, fs = STREET_HALF + sign * (k + 1);
+            for (let x = d.x0; x <= d.x1; x++) stairs.push({ x, z, s: fs });
+          }
+        } else if (d.z1 === b.z1) {
+          for (let k = 0; k < steps; k++) {
+            const z = b.z1 - 1 - k, fs = STREET_HALF + sign * (k + 1);
+            for (let x = d.x0; x <= d.x1; x++) stairs.push({ x, z, s: fs });
+          }
+        } else if (d.x0 === b.x0) {
+          for (let k = 0; k < steps; k++) {
+            const x = b.x0 + 1 + k, fs = STREET_HALF + sign * (k + 1);
+            for (let z = d.z0; z <= d.z1; z++) stairs.push({ x, z, s: fs });
+          }
+        } else if (d.x1 === b.x1) {
+          for (let k = 0; k < steps; k++) {
+            const x = b.x1 - 1 - k, fs = STREET_HALF + sign * (k + 1);
+            for (let z = d.z0; z <= d.z1; z++) stairs.push({ x, z, s: fs });
+          }
+        }
+      }
+      if (stairs.length) {
+        const clash = (so) => stairs.some(st =>
+          st.x >= so.x0 && st.x <= so.x1 && st.z >= so.z0 && st.z <= so.z1);
+        const kept = solids.filter(so => !clash(so));
+        solids.length = 0;
+        solids.push(...kept);
+      }
+    }
     const info = {
       i, j, x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1,
-      layout, rooms, doors, solids, forced
+      layout, level, rooms, doors, solids, stairs, forced
     };
     blockCache.set(key, info);
     return info;
@@ -577,16 +602,14 @@
     const x0 = Math.floor(cx - W / 2);
     const z0 = Math.floor(cz - W / 2);
 
-    F = makeField(CFG.floorSpacing, SALT_FLOOR, x0, z0, W);
-
     const floor = new Int16Array(W * W).fill(EMPTY);
-    const kind = new Uint8Array(W * W); // 0 mass, 1 street, 2 door, 3 room
+    const kind = new Uint8Array(W * W); // 0 mass, 1 street, 2 door, 3 room, 4 stair
 
-    const open = (x, z, k) => {
+    const open = (x, z, k, s) => {
       const px = x - x0, pz = z - z0;
       if (px < 0 || px >= W || pz < 0 || pz >= W) return;
       const idx = pz * W + px;
-      floor[idx] = floorHalf(x, z);
+      floor[idx] = s;
       kind[idx] = k;
     };
     const solid = (x, z) => {
@@ -606,7 +629,7 @@
         if (!segV(i, j)) continue;
         const za = streetZ(j), zb = streetZ(j + 1);
         for (let x = sx - half; x <= sx + half; x++) {
-          for (let z = Math.max(za, z0); z <= Math.min(zb, z0 + W - 1); z++) open(x, z, 1);
+          for (let z = Math.max(za, z0); z <= Math.min(zb, z0 + W - 1); z++) open(x, z, 1, STREET_HALF);
         }
       }
     }
@@ -616,7 +639,7 @@
         if (!segH(i, j)) continue;
         const xa = streetX(i), xb = streetX(i + 1);
         for (let z = sz - half; z <= sz + half; z++) {
-          for (let x = Math.max(xa, x0); x <= Math.min(xb, x0 + W - 1); x++) open(x, z, 1);
+          for (let x = Math.max(xa, x0); x <= Math.min(xb, x0 + W - 1); x++) open(x, z, 1, STREET_HALF);
         }
       }
     }
@@ -630,9 +653,10 @@
         if (!b) continue;
         if (b.x1 < x0 || b.x0 > x0 + W - 1 || b.z1 < z0 || b.z0 > z0 + W - 1) continue;
         blockMap.set(i + "," + j, b);
+        const bh = levelHalf(b.level);
         for (const r of b.rooms) {
           for (let x = Math.max(r.x0, x0); x <= Math.min(r.x1, x0 + W - 1); x++) {
-            for (let z = Math.max(r.z0, z0); z <= Math.min(r.z1, z0 + W - 1); z++) open(x, z, 3);
+            for (let z = Math.max(r.z0, z0); z <= Math.min(r.z1, z0 + W - 1); z++) open(x, z, 3, bh);
           }
           rooms.push({
             i, j, x: Math.floor((r.x0 + r.x1) / 2), z: Math.floor((r.z0 + r.z1) / 2),
@@ -646,9 +670,15 @@
           }
         }
         for (const d of b.doors) {
+          const street = d.x0 === b.x0 || d.x1 === b.x1 || d.z0 === b.z0 || d.z1 === b.z1;
+          const ds = street ? STREET_HALF : bh;
           for (let x = d.x0; x <= d.x1; x++) {
-            for (let z = d.z0; z <= d.z1; z++) open(x, z, 2);
+            for (let z = d.z0; z <= d.z1; z++) open(x, z, 2, ds);
           }
+        }
+        for (const st of b.stairs) {
+          if (st.x < x0 || st.x >= x0 + W || st.z < z0 || st.z >= z0 + W) continue;
+          open(st.x, st.z, 4, st.s);
         }
       }
     }
@@ -661,7 +691,7 @@
       spawn = {
         x: Math.floor((r.x0 + r.x1) / 2),
         z: Math.floor((r.z0 + r.z1) / 2),
-        y: Math.round(floorHalf(Math.floor((r.x0 + r.x1) / 2), Math.floor((r.z0 + r.z1) / 2)) / 2)
+        y: Math.round(levelHalf(spawnBlock.level) / 2)
       };
     }
     let visited = null;
@@ -763,12 +793,19 @@
         const s = floor[idx];
         const { i, j } = blockAt(wx, wz);
         const info = blockMap.get(i + "," + j) || blockInfo(i, j);
+        let onStairs = false;
+        if (info) {
+          for (const st of info.stairs) {
+            if (st.x === wx && st.z === wz) { onStairs = true; break; }
+          }
+        }
         return {
           x: wx, z: wz, i, j,
           kind: kind[idx],
           carved: s !== EMPTY,
           floorHalf: s,
           floorY: s === EMPTY ? null : s / 2,
+          onStairs,
           reachable: visited ? !!visited[idx] : null,
           block: info
         };
@@ -785,14 +822,11 @@
     DEFAULT_CONFIG,
     LAYOUT_NAMES,
     build,
-    floorSurface,
     blockLayoutAt,
+    levelHalf,
+    blockLevel,
     debug: {
-      streetX, streetZ, streetWidth, segV, segH, blockInfo, spawnCell,
-      inStreet: (x, z) => {
-        const { i, j } = blockAt(x, z);
-        return { i, j };
-      }
+      streetX, streetZ, streetWidth, segV, segH, blockInfo, spawnCell
     }
   };
 });

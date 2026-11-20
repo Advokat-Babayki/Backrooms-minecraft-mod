@@ -281,6 +281,7 @@
       <span><i style="background:#1e1c14"></i>масса (стена)</span>
       <span><i style="background:#968445"></i>коридор</span>
       <span><i style="background:#b09c5a"></i>комната</span>
+      <span><i style="background:#d6aa54"></i>лестница</span>
       <span><i style="background:#82303f"></i>недостижимо от спавна</span>
       <span><i style="background:#6ee7ff"></i>точка входа</span>
       <span><i style="background:#e06060"></i>запертая комната</span>
@@ -358,7 +359,7 @@
   "use strict";
   const Core = window.Level0Core;
   const DEFAULTS = Core.DEFAULT_CONFIG;
-  const STORE_KEY = "backrooms.level0.preview.v3";
+  const STORE_KEY = "backrooms.level0.preview.v4";
 
   const state = {
     config: Object.assign({}, DEFAULTS),
@@ -407,10 +408,11 @@
     },
     {
       title: "Высоты",
-      hint: "Пол плавно ходит в полушагах 64..88. Стены, двери и повороты при этом остаются прямыми.",
+      hint: "Пол каждой комнаты и коридора строго горизонтален. Иногда целые районы на этаж выше или ниже; вход — только по лестнице.",
       items: [
-        { key: "floorSpacing", label: "Высоты · шаг поля", min: 96, max: 384, step: 8 },
-        { key: "floorLevels", label: "Высоты · этажей", min: 3, max: 9, step: 1 }
+        { key: "districtSize", label: "Размер района (блоков)", min: 1, max: 4, step: 1 },
+        { key: "raisedChance", label: "Районов на другом этаже", min: 0, max: 60, step: 5, fmt: v => v + "%" },
+        { key: "levelHeight", label: "Высота этажа (блоки)", min: 2, max: 4, step: 1 }
       ]
     }
   ];
@@ -569,6 +571,7 @@
     web: [150, 132, 65],
     ray: [146, 129, 64],
     room: [176, 156, 90],
+    stair: [214, 170, 84],
     unreachable: [132, 46, 62],
     roomEdge: [96, 82, 42],
     spawn: [110, 231, 255],
@@ -596,10 +599,16 @@
           const grain = ((Math.imul(px + 11, 73856093) ^ Math.imul(pz + 17, 19349663)) >>> 27) & 3;
           r = COL.mass[0] + grain; g = COL.mass[1] + grain; b = COL.mass[2] + grain;
         } else {
-          const d = Math.max(0, Math.min(1, (fh - 128) / 48));
-          const shade = 0.78 + 0.34 * d;
-          const base = kind[i] === 3 ? COL.room : (kind[i] === 2 ? COL.ray : COL.web);
-          r = base[0] * shade; g = base[1] * shade; b = base[2] * shade;
+          const lvl = Math.max(-1, Math.min(1, (fh - 128) / 6));
+          const base = kind[i] === 3 ? COL.room
+            : kind[i] === 4 ? COL.stair
+            : (kind[i] === 2 ? COL.ray : COL.web);
+          r = base[0]; g = base[1]; b = base[2];
+          if (lvl > 0.05) {
+            r = r * 0.55 + 214 * 0.45; g = g * 0.55 + 196 * 0.45; b = b * 0.55 + 128 * 0.45;
+          } else if (lvl < -0.05) {
+            r = r * 0.55 + 104 * 0.45; g = g * 0.55 + 98 * 0.45; b = b * 0.55 + 78 * 0.45;
+          }
           const grain = (((Math.imul(px + 3, 73856093) ^ Math.imul(pz + 5, 19349663)) >>> 28) & 7) - 3;
           r += grain; g += grain; b += grain;
 
@@ -611,7 +620,7 @@
               (pz > 0 && kind[i - W] === 0) ||
               (pz < W - 1 && kind[i + W] === 0);
             if (edge) {
-              r = COL.roomEdge[0] * shade; g = COL.roomEdge[1] * shade; b = COL.roomEdge[2] * shade;
+              r = COL.roomEdge[0]; g = COL.roomEdge[1]; b = COL.roomEdge[2];
             }
           }
 
@@ -710,12 +719,14 @@
       hoverEl.innerHTML = "x=" + wx + " z=" + wz + " · блок [" + info.i + ", " + info.j + "] · <b>масса</b> (не вырезано)";
       return;
     }
-    let what = info.kind === 3 ? "комната" : info.kind === 2 ? "дверь" : "коридор";
+    let what = info.kind === 3 ? "комната" : info.kind === 2 ? "дверь"
+      : info.kind === 4 ? "лестница" : "коридор";
     let text = "x=" + wx + " z=" + wz + " · блок [" + info.i + ", " + info.j + "] · <b>" +
       what + "</b> · пол y=" + (info.floorY + 1).toFixed(1);
     if (info.block) {
       const layout = Core.LAYOUT_NAMES[info.block.layout] || info.block.layout;
-      text += " · " + layout;
+      const lv = info.block.level;
+      text += " · " + layout + " · " + (lv === 0 ? "уровень 0" : "уровень " + (lv > 0 ? "+" : "") + lv);
       const room = info.block.rooms.find(r => wx >= r.x0 && wx <= r.x1 && wz >= r.z0 && wz <= r.z1);
       if (room) text += " · " + room.name;
     }

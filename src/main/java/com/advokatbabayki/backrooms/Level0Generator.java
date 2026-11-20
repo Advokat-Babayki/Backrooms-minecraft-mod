@@ -97,7 +97,8 @@ public class Level0Generator extends ChunkGenerator {
                 for (int x = sx - half; x <= sx + half; x++) {
                     for (int z = za; z <= zb; z++) {
                         if (x < baseX || x > baseX + 15) continue;
-                        carveColumn(chunk, x, z, carpet, ceilingTile, light, air, slabBottom);
+                        carveColumn(chunk, x, z, Level0Plan.STREET_FLOOR_HALF,
+                                carpet, ceilingTile, light, air, slabBottom);
                     }
                 }
             }
@@ -112,7 +113,8 @@ public class Level0Generator extends ChunkGenerator {
                 for (int z = sz - half; z <= sz + half; z++) {
                     for (int x = xa; x <= xb; x++) {
                         if (z < baseZ || z > baseZ + 15) continue;
-                        carveColumn(chunk, x, z, carpet, ceilingTile, light, air, slabBottom);
+                        carveColumn(chunk, x, z, Level0Plan.STREET_FLOOR_HALF,
+                                carpet, ceilingTile, light, air, slabBottom);
                     }
                 }
             }
@@ -126,6 +128,7 @@ public class Level0Generator extends ChunkGenerator {
                 if (block.x1() < baseX || block.x0() > baseX + 15
                         || block.z1() < baseZ || block.z0() > baseZ + 15) continue;
 
+                int blockHalf = Level0Plan.levelHalf(block.level());
                 for (Level0Plan.Room room : block.rooms()) {
                     int x0 = Math.max(room.x0(), baseX);
                     int x1 = Math.min(room.x1(), baseX + 15);
@@ -133,7 +136,8 @@ public class Level0Generator extends ChunkGenerator {
                     int z1 = Math.min(room.z1(), baseZ + 15);
                     for (int x = x0; x <= x1; x++) {
                         for (int z = z0; z <= z1; z++) {
-                            carveColumn(chunk, x, z, carpet, ceilingTile, light, air, slabBottom);
+                            carveColumn(chunk, x, z, blockHalf,
+                                    carpet, ceilingTile, light, air, slabBottom);
                         }
                     }
                 }
@@ -145,21 +149,32 @@ public class Level0Generator extends ChunkGenerator {
                     int z1 = Math.min(solid.z1(), baseZ + 15);
                     for (int x = x0; x <= x1; x++) {
                         for (int z = z0; z <= z1; z++) {
-                            fillSolid(chunk, x, z, wallpaper);
+                            fillSolid(chunk, x, z, blockHalf, wallpaper);
                         }
                     }
                 }
 
                 for (Level0Plan.Door door : block.doors()) {
+                    boolean streetDoor = door.x0() == block.x0() || door.x1() == block.x1()
+                            || door.z0() == block.z0() || door.z1() == block.z1();
+                    int doorHalf = streetDoor ? Level0Plan.STREET_FLOOR_HALF : blockHalf;
                     int x0 = Math.max(door.x0(), baseX);
                     int x1 = Math.min(door.x1(), baseX + 15);
                     int z0 = Math.max(door.z0(), baseZ);
                     int z1 = Math.min(door.z1(), baseZ + 15);
                     for (int x = x0; x <= x1; x++) {
                         for (int z = z0; z <= z1; z++) {
-                            carveColumn(chunk, x, z, carpet, ceilingTile, light, air, slabBottom);
+                            carveColumn(chunk, x, z, doorHalf,
+                                    carpet, ceilingTile, light, air, slabBottom);
                         }
                     }
+                }
+
+                for (Level0Plan.StairStep step : block.stairs()) {
+                    if (step.x() < baseX || step.x() > baseX + 15
+                            || step.z() < baseZ || step.z() > baseZ + 15) continue;
+                    carveColumn(chunk, step.x(), step.z(), step.s(),
+                            carpet, ceilingTile, light, air, slabBottom);
                 }
             }
         }
@@ -168,12 +183,11 @@ public class Level0Generator extends ChunkGenerator {
     }
 
     /** One carved column at the continuous floor height. */
-    private void carveColumn(ChunkAccess chunk, int x, int z,
+    private void carveColumn(ChunkAccess chunk, int x, int z, int s,
             BlockState carpet, BlockState ceilingTile, BlockState light, BlockState air,
             BlockState slabBottom) {
         if (x < chunk.getPos().getMinBlockX() || x > chunk.getPos().getMaxBlockX()
                 || z < chunk.getPos().getMinBlockZ() || z > chunk.getPos().getMaxBlockZ()) return;
-        int s = plan.floorHalf(x, z);
         boolean half = (s & 1) != 0;
         int y0 = half ? (s - 1) / 2 : s / 2;
         int ceilY = y0 + (half ? 5 : 4);
@@ -192,10 +206,9 @@ public class Level0Generator extends ChunkGenerator {
     }
 
     /** A column or a partial partition: solid wallpaper from floor to ceiling. */
-    private void fillSolid(ChunkAccess chunk, int x, int z, BlockState wallpaper) {
+    private void fillSolid(ChunkAccess chunk, int x, int z, int s, BlockState wallpaper) {
         if (x < chunk.getPos().getMinBlockX() || x > chunk.getPos().getMaxBlockX()
                 || z < chunk.getPos().getMinBlockZ() || z > chunk.getPos().getMaxBlockZ()) return;
-        int s = plan.floorHalf(x, z);
         boolean half = (s & 1) != 0;
         int y0 = half ? (s - 1) / 2 : s / 2;
         int ceilY = y0 + (half ? 5 : 4);
@@ -222,7 +235,7 @@ public class Level0Generator extends ChunkGenerator {
     @Override
     public int getBaseHeight(int x, int z, Heightmap.Types type, LevelHeightAccessor level,
             RandomState random) {
-        return plan.floorSurface(x, z) + 1;
+        return Level0Plan.BASE_FLOOR_Y + 1;
     }
 
     @Override

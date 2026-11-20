@@ -72,7 +72,7 @@ public final class BackroomsCommands {
         int[] cell = plan.blockOf(bx, bz);
         Level0Plan.Block block = plan.block(cell[0], cell[1]);
         if (block == null) {
-            int floor = plan.floorSurface(bx, bz);
+            int floor = Level0Plan.BASE_FLOOR_Y;
             source.sendSuccess(() -> Component.literal(String.format(
                     "Ты в коридоре или сплошной массе, блок [%d, %d], пол y=%d.",
                     cell[0], cell[1], floor)), false);
@@ -93,10 +93,13 @@ public final class BackroomsCommands {
         };
         String place = roomName != null ? roomName : "коридор";
         String finalRoom = place;
-        int floor = plan.floorSurface(bx, bz);
+        int floor = Level0Plan.BASE_FLOOR_Y + Level0Plan.LEVEL_HEIGHT * block.level();
+        String levelText = block.level() == 0 ? "уровень 0"
+                : "уровень " + (block.level() > 0 ? "+" : "") + block.level();
+        int lvl = block.level();
         source.sendSuccess(() -> Component.literal(String.format(
-                "Блок [%d, %d]: %s · %s · пол y=%d",
-                cell[0], cell[1], layout, finalRoom, floor)), false);
+                "Блок [%d, %d]: %s · %s · %s · пол y=%d",
+                cell[0], cell[1], layout, finalRoom, levelText, floor)), false);
         return Command.SINGLE_SUCCESS;
     }
 

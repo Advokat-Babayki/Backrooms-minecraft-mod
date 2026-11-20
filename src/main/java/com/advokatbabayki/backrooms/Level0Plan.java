@@ -28,11 +28,12 @@ public final class Level0Plan {
     public static final int WIDE_OPENING = 6;
     public static final int COLUMN_SPACING = 6;
     public static final int PARTITION_CHANCE = 40;
-    public static final int FLOOR_SPACING = 96;
-    public static final int FLOOR_LEVELS = 3;
+    public static final int DISTRICT_SIZE = 2;      // blocks per height district
+    public static final int RAISED_CHANCE = 30;     // % of districts on another floor
+    public static final int LEVEL_HEIGHT = 3;       // blocks between floor levels
 
     public static final int BASE_FLOOR_Y = 64;
-    public static final int MAX_FLOOR_Y = 88;
+    public static final int STREET_FLOOR_HALF = BASE_FLOOR_Y * 2;
 
     private static final long SALT_FLOOR = 0x2545F4914F6CDD1DL;
     private static final long SALT_SX = 0x1A2B3C4D5E6F7081L;
@@ -43,6 +44,7 @@ public final class Level0Plan {
     private static final long SALT_BLOCK = 0x6F708192A3B4C5D6L;
     private static final long SALT_DOOR = 0x708192A3B4C5D6E7L;
     private static final long SALT_DETAIL = 0x8192A3B4C5D6E7F8L;
+    private static final long SALT_LEVEL = 0x92A3B4C5D6E7F809L;
 
     public record Room(int x0, int x1, int z0, int z1, String name) {}
 
@@ -51,8 +53,12 @@ public final class Level0Plan {
     /** Solid furniture inside a carved room: a column or a partial partition. */
     public record Solid(int x0, int x1, int z0, int z1) {}
 
+    /** One stair tread column at a fixed half-block floor height. */
+    public record StairStep(int x, int z, int s) {}
+
     public record Block(int i, int j, int x0, int x1, int z0, int z1, String layout,
-            List<Room> rooms, List<Door> doors, List<Solid> solids) {}
+            int level, List<Room> rooms, List<Door> doors, List<Solid> solids,
+            List<StairStep> stairs) {}
 
     private final long seed;
     private final ConcurrentHashMap<Long, Optional<Block>> cache = new ConcurrentHashMap<>();
@@ -102,28 +108,20 @@ public final class Level0Plan {
         return Math.max(lo, Math.min(hi, v));
     }
 
-    private double floorNoise(double x, double z) {
-        double spacing = FLOOR_SPACING;
-        double fx = x / spacing, fz = z / spacing;
-        int ix = (int) Math.floor(fx), iz = (int) Math.floor(fz);
-        double tx = smooth(fx - ix), tz = smooth(fz - iz);
-        double v00 = corner(ix, iz), v10 = corner(ix + 1, iz);
-        double v01 = corner(ix, iz + 1), v11 = corner(ix + 1, iz + 1);
-        return lerp(lerp(v00, v10, tx), lerp(v01, v11, tx), tz);
+    /** Floor half-height of a whole level. Level 0 is y64. */
+    public static int levelHalf(int level) {
+        return STREET_FLOOR_HALF + 2 * LEVEL_HEIGHT * level;
     }
 
-    private double corner(int i, int j) {
-        return (hash(i, j, SALT_FLOOR) >>> 11) / (double) (1L << 53);
-    }
-
-    /** Floor surface in half-block units. */
-    public int floorHalf(double x, double z) {
-        double q = floorNoise(x, z) * (FLOOR_LEVELS - 1);
-        return (int) Math.round((BASE_FLOOR_Y + q * 3) * 2);
-    }
-
-    public int floorSurface(double x, double z) {
-        return (int) Math.round(floorHalf(x, z) / 2.0);
+    /** District level of a block: most are 0, some whole districts are +1/-1. */
+    public int blockLevel(int i, int j) {
+        if (i == spawnI && j == spawnJ) return 0;
+        int di = Math.floorDiv(i, DISTRICT_SIZE);
+        int dj = Math.floorDiv(j, DISTRICT_SIZE);
+        int v = (int) umod(hash(di, dj, SALT_LEVEL), 100);
+        if (v < RAISED_CHANCE / 2) return 1;
+        if (v < RAISED_CHANCE) return -1;
+        return 0;
     }
 
     // ---- Streets ----
@@ -198,12 +196,12 @@ public final class Level0Plan {
     public int[] spawnPoint() {
         Block b = block(spawnI, spawnJ);
         if (b == null || b.rooms().isEmpty()) {
-            return new int[] { 0, 0, floorSurface(0, 0) };
+            return new int[] { 0, 0, BASE_FLOOR_Y };
         }
         Room r = b.rooms().get(0);
         int x = (r.x0() + r.x1()) / 2;
         int z = (r.z0() + r.z1()) / 2;
-        return new int[] { x, z, floorSurface(x, z) };
+        return new int[] { x, z, BASE_FLOOR_Y + LEVEL_HEIGHT * b.level() };
     }
 
     // ---- Blocks ----
@@ -258,14 +256,67 @@ public final class Level0Plan {
         }
 
         Builder b = new Builder(i, j);
+        int level = blockLevel(i, j);
         switch (layout) {
             case "hall" -> buildHall(b, ix0, ix1, iz0, iz1, present, sn, se, ss, sw, forced);
             case "suite" -> buildSuite(b, ix0, ix1, iz0, iz1, present, forced);
-            case "merge" -> buildMerge(b, ix0, ix1, iz0, iz1, present, vertical);
+            case "merge" -> buildMerge(b, ix0, ix1, iz0, iz1, present, primary, vertical,
+                    x0, x1, z0, z1);
             default -> buildOffices(b, ix0, ix1, iz0, iz1, present, sn, se, ss, sw, vertical, primary, forced);
         }
-        return new Block(i, j, x0, x1, z0, z1, layout,
-                List.copyOf(b.rooms), List.copyOf(b.doors), List.copyOf(b.solids));
+        List<StairStep> stairs = new ArrayList<>();
+        if (level != 0) {
+            int sign = Integer.signum(level);
+            int steps = 2 * LEVEL_HEIGHT;
+            for (Door d : b.doors) {
+                boolean street = d.x0() == x0 || d.x1() == x1 || d.z0() == z0 || d.z1() == z1;
+                if (!street) continue;
+                if (d.z0() == z0) { // door in the north wall, stairs go south
+                    for (int k = 0; k < steps; k++) {
+                        int z = z0 + 1 + k;
+                        int fs = STREET_FLOOR_HALF + sign * (k + 1);
+                        for (int x = d.x0(); x <= d.x1(); x++) stairs.add(new StairStep(x, z, fs));
+                    }
+                } else if (d.z1() == z1) { // south wall, stairs go north
+                    for (int k = 0; k < steps; k++) {
+                        int z = z1 - 1 - k;
+                        int fs = STREET_FLOOR_HALF + sign * (k + 1);
+                        for (int x = d.x0(); x <= d.x1(); x++) stairs.add(new StairStep(x, z, fs));
+                    }
+                } else if (d.x0() == x0) { // west wall, stairs go east
+                    for (int k = 0; k < steps; k++) {
+                        int x = x0 + 1 + k;
+                        int fs = STREET_FLOOR_HALF + sign * (k + 1);
+                        for (int z = d.z0(); z <= d.z1(); z++) stairs.add(new StairStep(x, z, fs));
+                    }
+                } else if (d.x1() == x1) { // east wall, stairs go west
+                    for (int k = 0; k < steps; k++) {
+                        int x = x1 - 1 - k;
+                        int fs = STREET_FLOOR_HALF + sign * (k + 1);
+                        for (int z = d.z0(); z <= d.z1(); z++) stairs.add(new StairStep(x, z, fs));
+                    }
+                }
+            }
+            if (!stairs.isEmpty()) {
+                List<Solid> kept = new ArrayList<>();
+                for (Solid so : b.solids) {
+                    boolean clash = false;
+                    for (StairStep st : stairs) {
+                        if (st.x() >= so.x0() && st.x() <= so.x1()
+                                && st.z() >= so.z0() && st.z() <= so.z1()) {
+                            clash = true;
+                            break;
+                        }
+                    }
+                    if (!clash) kept.add(so);
+                }
+                b.solids.clear();
+                b.solids.addAll(kept);
+            }
+        }
+        return new Block(i, j, x0, x1, z0, z1, layout, level,
+                List.copyOf(b.rooms), List.copyOf(b.doors), List.copyOf(b.solids),
+                List.copyOf(stairs));
     }
 
     private final class Builder {
@@ -440,7 +491,8 @@ public final class Level0Plan {
     }
 
     private void buildMerge(Builder b, int ix0, int ix1, int iz0, int iz1,
-            List<String> present, boolean vertical) {
+            List<String> present, String primary, boolean vertical,
+            int bx0, int bx1, int bz0, int bz1) {
         int cut;
         if (vertical) {
             cut = ix0 + (ix1 - ix0) / 2 + b.hashNum(b.i, b.j, SALT_DETAIL) % 9 - 4;
@@ -449,10 +501,10 @@ public final class Level0Plan {
             Room c = new Room(cut + 1, ix1, iz0, iz1, "MERGED ROOMS");
             b.rooms.add(a);
             b.rooms.add(c);
-            for (String side : present) {
-                b.streetDoor(1, a, side, ix0 - 1, ix1 + 1, iz0 - 1, iz1 + 1);
-                b.streetDoor(2, c, side, ix0 - 1, ix1 + 1, iz0 - 1, iz1 + 1);
-            }
+            b.streetDoor(1, a, primary, bx0, bx1, bz0, bz1);
+            b.streetDoor(2, c, primary, bx0, bx1, bz0, bz1);
+            b.extraDoors(1, a, present, primary, ix0, ix1, iz0, iz1, bx0, bx1, bz0, bz1);
+            b.extraDoors(2, c, present, primary, ix0, ix1, iz0, iz1, bx0, bx1, bz0, bz1);
             int ow = clampInt(WIDE_OPENING, 4, 10);
             int span = iz1 - iz0 - ow - 1;
             if (span > 0) {
@@ -468,10 +520,10 @@ public final class Level0Plan {
             Room c = new Room(ix0, ix1, cut + 1, iz1, "MERGED ROOMS");
             b.rooms.add(a);
             b.rooms.add(c);
-            for (String side : present) {
-                b.streetDoor(1, a, side, ix0 - 1, ix1 + 1, iz0 - 1, iz1 + 1);
-                b.streetDoor(2, c, side, ix0 - 1, ix1 + 1, iz0 - 1, iz1 + 1);
-            }
+            b.streetDoor(1, a, primary, bx0, bx1, bz0, bz1);
+            b.streetDoor(2, c, primary, bx0, bx1, bz0, bz1);
+            b.extraDoors(1, a, present, primary, ix0, ix1, iz0, iz1, bx0, bx1, bz0, bz1);
+            b.extraDoors(2, c, present, primary, ix0, ix1, iz0, iz1, bx0, bx1, bz0, bz1);
             int ow = clampInt(WIDE_OPENING, 4, 10);
             int span = ix1 - ix0 - ow - 1;
             if (span > 0) {
