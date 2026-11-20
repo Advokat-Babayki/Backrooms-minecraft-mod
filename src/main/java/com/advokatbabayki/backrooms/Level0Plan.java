@@ -28,8 +28,8 @@ public final class Level0Plan {
     public static final int WIDE_OPENING = 6;
     public static final int COLUMN_SPACING = 6;
     public static final int PARTITION_CHANCE = 40;
-    public static final int FLOOR_SPACING = 192;
-    public static final int FLOOR_LEVELS = 9;
+    public static final int FLOOR_SPACING = 96;
+    public static final int FLOOR_LEVELS = 3;
 
     public static final int BASE_FLOOR_Y = 64;
     public static final int MAX_FLOOR_Y = 88;

@@ -45,8 +45,8 @@
     wideOpening: 6,
     columnSpacing: 6,
     partitionChance: 40,
-    floorSpacing: 192,
-    floorLevels: 9
+    floorSpacing: 96,
+    floorLevels: 3
   });
 
   const LAYOUT_NAMES = {
