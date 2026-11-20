@@ -7,17 +7,7 @@
     "sky_color": 0,
     "water_color": 4159204,
     "water_fog_color": 329011,
-    "ambient_sound": "backrooms:hum",
-    "additions_sound": {
-      "sound": "backrooms:hum",
-      "tick_chance": 0.008
-    },
-    "mood_sound": {
-      "sound": "backrooms:hum",
-      "tick_delay": 4000,
-      "block_search_extent": 8,
-      "offset": 2.0
-    }
+    "ambient_sound": "backrooms:hum"
   },
   "spawners": {},
   "spawn_costs": {},
