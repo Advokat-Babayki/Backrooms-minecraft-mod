@@ -7,5 +7,14 @@
   "block.backrooms.fluorescent_panel": "Fluorescent Panel",
   "block.backrooms.wallpaper_slab": "Wallpaper Slab",
   "block.backrooms.red_wallpaper": "Red Wallpaper",
-  "block.backrooms.carpet_stairs": "Carpet Stairs"
+  "block.backrooms.carpet_stairs": "Carpet Stairs",
+  "block.backrooms.filing_cabinet": "Filing Cabinet",
+  "block.backrooms.office_desk": "Office Desk",
+  "block.backrooms.office_chair": "Office Chair",
+  "block.backrooms.office_shelf": "Office Shelf",
+  "block.backrooms.water_cooler": "Water Cooler",
+  "block.backrooms.potted_plant": "Potted Plant",
+  "block.backrooms.trash_bin": "Trash Bin",
+  "block.backrooms.printer": "Printer",
+  "container.backrooms.filing_cabinet": "Filing Cabinet"
 }

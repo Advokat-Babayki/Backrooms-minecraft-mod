@@ -7,5 +7,14 @@
   "block.backrooms.fluorescent_panel": "Флуоресцентная лампа",
   "block.backrooms.wallpaper_slab": "Обойная плита",
   "block.backrooms.red_wallpaper": "Красные обои",
-  "block.backrooms.carpet_stairs": "Лестница из ковра"
+  "block.backrooms.carpet_stairs": "Лестница из ковра",
+  "block.backrooms.filing_cabinet": "Картотечный шкаф",
+  "block.backrooms.office_desk": "Офисный стол",
+  "block.backrooms.office_chair": "Офисный стул",
+  "block.backrooms.office_shelf": "Офисный стеллаж",
+  "block.backrooms.water_cooler": "Кулер с водой",
+  "block.backrooms.potted_plant": "Растение в горшке",
+  "block.backrooms.trash_bin": "Мусорная корзина",
+  "block.backrooms.printer": "Принтер",
+  "container.backrooms.filing_cabinet": "Картотечный шкаф"
 }

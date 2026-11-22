@@ -256,6 +256,16 @@
   }
   .viewbox .row2 { display: flex; gap: 8px; margin-top: 8px; }
   .viewbox .row2 button { flex: 1; }
+  .lightsToggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  .lightsToggle input { accent-color: var(--accent); width: auto; }
   @media (max-width: 1050px) {
     main { grid-template-columns: 1fr; }
     aside.panel { position: static; max-height: none; }
@@ -281,6 +291,9 @@
       <span><i style="background:#1e1c14"></i>масса (стена)</span>
       <span><i style="background:#968445"></i>коридор</span>
       <span><i style="background:#b09c5a"></i>комната</span>
+      <span><i style="background:#604a28"></i>шкаф</span>
+      <span><i style="background:#9a8654"></i>стол</span>
+      <span><i style="background:#c4b274"></i>зал на месте улицы</span>
       <span><i style="background:#d6aa54"></i>лестница</span>
       <span><i style="background:#82303f"></i>недостижимо от спавна</span>
       <span><i style="background:#6ee7ff"></i>точка входа</span>
@@ -291,7 +304,7 @@
   <aside class="panel">
     <div class="panelHead">
       <div>Настройки генерации</div>
-      <button id="reset" title="Вернуть значения, которые сейчас в игре">Сброс к игре</button>
+      <button id="reset" title="Вернуть значения превью по умолчанию">Сброс к дефолту</button>
     </div>
     <div id="controls"></div>
 
@@ -335,6 +348,7 @@
           <button id="reroll" style="width:100%">Перерисовать</button>
         </div>
       </div>
+      <label class="lightsToggle"><input type="checkbox" id="lights"> Показать свет: панели, мёртвые лампы, тёмные районы</label>
       <div class="hint" style="margin-top:8px">Карту можно таскать мышью за любое место.</div>
     </div>
 
@@ -359,11 +373,11 @@
   "use strict";
   const Core = window.Level0Core;
   const DEFAULTS = Core.DEFAULT_CONFIG;
-  const STORE_KEY = "backrooms.level0.preview.v5";
+  const STORE_KEY = "backrooms.level0.preview.v7";
 
   const state = {
     config: Object.assign({}, DEFAULTS),
-    view: { span: 1024, cx: 0, cz: 0 }
+    view: { span: 1024, cx: 0, cz: 0, lights: false }
   };
   let lastBuild = null;
   let renderTimer = null;
@@ -380,39 +394,62 @@
     },
     {
       title: "Улицы (коридоры)",
-      hint: "Прямые коридоры с шагом около тридцати блоков. Шаг и разброс ломают регулярность; процент сегментов оставляет обрывы и тупики.",
+      hint: "Коридоры с шагом около сорока блоков. Шаг и разброс двигают улицу целиком, «гуляние» сдвигает каждую на своём сегменте — прямых линий через весь уровень не остаётся. Процент сегментов оставляет обрывы и тупики.",
       items: [
         { key: "pitch", label: "Шаг улиц", min: 24, max: 128, step: 1 },
         { key: "jitter", label: "Разброс улиц", min: 0, max: 30, step: 1 },
+        { key: "wander", label: "Гуляние улиц (блоки)", min: 0, max: 3, step: 1 },
         { key: "streetWidthMax", label: "Макс. ширина коридора", min: 3, max: 9, step: 2 },
         { key: "segmentChance", label: "Сегментов существует", min: 50, max: 95, step: 5, fmt: v => v + "%" }
       ]
     },
     {
       title: "Блоки и комнаты",
-      hint: "Между улицами — блоки. Часть застроена офисами, часть остаётся сплошной. Двери короткие, широкие проёмы объединяют комнаты.",
+      hint: "Между улицами — блоки. Стена может быть открыта прямо в коридор или утолщена; на месте пропавшей улицы иногда получается зал, который соединяет два блока без коридора.",
       items: [
         { key: "blockChance", label: "Застроено блоков", min: 50, max: 100, step: 5, fmt: v => v + "%" },
-        { key: "maxRooms", label: "Комнат в ряду (макс.)", min: 2, max: 4, step: 1 },
+        { key: "wallOpen", label: "Открытых стен", min: 0, max: 40, step: 2, fmt: v => v + "%" },
+        { key: "wallThick", label: "Толстых стен", min: 0, max: 40, step: 2, fmt: v => v + "%" },
+        { key: "hallChance", label: "Зал вместо пропавшей улицы", min: 0, max: 100, step: 5, fmt: v => v + "%" },
+        { key: "falseDoorChance", label: "Фальш-двери", min: 0, max: 30, step: 2, fmt: v => v + "%" },
         { key: "doorWidth", label: "Ширина двери", min: 2, max: 4, step: 1 },
         { key: "wideOpening", label: "Широкий проём", min: 4, max: 8, step: 1 }
       ]
     },
     {
       title: "Офисный наполнитель",
-      hint: "Колонны в залах и короткие перегородки-кубиклы внутри комнат.",
+      hint: "Колонны в залах, короткие перегородки-кубиклы внутри комнат и редкие горы мебели в центре больших залов с высоким потолком.",
       items: [
         { key: "columnSpacing", label: "Шаг колонн", min: 4, max: 10, step: 1 },
-        { key: "partitionChance", label: "Перегородки в комнате", min: 0, max: 100, step: 10, fmt: v => v + "%" }
+        { key: "partitionChance", label: "Перегородки в комнате", min: 0, max: 100, step: 10, fmt: v => v + "%" },
+        { key: "furniturePileChance", label: "Шанс горы мебели", min: 0, max: 10, step: 1, fmt: v => v + "%" },
+        { key: "furniturePileMinRoom", label: "Мин. сторона зала для горы", min: 9, max: 21, step: 2 }
+      ]
+    },
+    {
+      title: "Свет",
+      hint: "Тёмные районы гасят панели целыми квадратами 48×48, отдельные лампы перегорают и заменяются плиткой.",
+      items: [
+        { key: "darkChance", label: "Тёмных районов", min: 0, max: 40, step: 5, fmt: v => v + "%" },
+        { key: "deadLightChance", label: "Перегоревших ламп", min: 0, max: 60, step: 5, fmt: v => v + "%" }
       ]
     },
     {
       title: "Высоты",
-      hint: "Пол каждой комнаты и коридора строго горизонтален. Иногда целые районы на этаж выше или ниже; вход — только по лестнице.",
+      hint: "Пол каждой комнаты и коридора строго горизонтален. Иногда целые районы на этаж выше или ниже; вход — только по лестнице. Залы могут получать высокий потолок.",
       items: [
         { key: "districtSize", label: "Размер района (блоков)", min: 1, max: 4, step: 1 },
         { key: "raisedChance", label: "Районов на другом этаже", min: 0, max: 60, step: 5, fmt: v => v + "%" },
-        { key: "levelHeight", label: "Высота этажа (блоки)", min: 2, max: 4, step: 1 }
+        { key: "levelHeight", label: "Высота этажа (блоки)", min: 2, max: 4, step: 1 },
+        { key: "hallCeilMax", label: "Макс. подъём потолка", min: 0, max: 8, step: 2 }
+      ]
+    },
+    {
+      title: "Плазы",
+      hint: "Редкий район 2×2 целиком превращается в один пустой зал с редкой сеткой колонн. В район спавна плаза не попадает.",
+      items: [
+        { key: "plazaChance", label: "Шанс плазы", min: 0, max: 12, step: 1, fmt: v => v + "%" },
+        { key: "plazaColSpacing", label: "Шаг колонн плазы", min: 8, max: 22, step: 2 }
       ]
     }
   ];
@@ -508,11 +545,18 @@
 
   // ---- view inputs ----
   const spanSel = $("span"), centerXEl = $("centerX"), centerZEl = $("centerZ");
+  const lightsEl = $("lights");
   function syncViewInputs() {
     spanSel.value = String(state.view.span);
     centerXEl.value = String(state.view.cx);
     centerZEl.value = String(state.view.cz);
+    lightsEl.checked = !!state.view.lights;
   }
+  lightsEl.addEventListener("change", () => {
+    state.view.lights = lightsEl.checked;
+    saveState();
+    if (lastBuild) draw(lastBuild);
+  });
   spanSel.addEventListener("change", () => {
     state.view.span = Number(spanSel.value) || 768;
     saveState();
@@ -571,6 +615,7 @@
     web: [150, 132, 65],
     ray: [146, 129, 64],
     room: [176, 156, 90],
+    hall: [196, 178, 116],
     stair: [214, 170, 84],
     unreachable: [132, 46, 62],
     roomEdge: [96, 82, 42],
@@ -584,7 +629,7 @@
     canvas.height = W;
     const img = ctx.createImageData(W, W);
     const data = img.data;
-    const floor = res.floor, kind = res.kind, visited = res.visited;
+    const floor = res.floor, kind = res.kind, visited = res.visited, furn = res.furn;
     const m = res.margin;
     const origW = res.W;
     const origH = res.W;
@@ -601,6 +646,7 @@
         } else {
           const lvl = Math.max(-1, Math.min(1, (fh - 128) / 6));
           const base = kind[i] === 3 ? COL.room
+            : kind[i] === 5 ? COL.hall
             : kind[i] === 4 ? COL.stair
             : (kind[i] === 2 ? COL.ray : COL.web);
           r = base[0]; g = base[1]; b = base[2];
@@ -613,7 +659,7 @@
           r += grain; g += grain; b += grain;
 
           // room outline: only where the room touches solid mass (doorways stay open)
-          if (kind[i] === 3) {
+          if (kind[i] === 3 || kind[i] === 5) {
             const edge =
               (px > 0 && kind[i - 1] === 0) ||
               (px < W - 1 && kind[i + 1] === 0) ||
@@ -624,8 +670,16 @@
             }
           }
 
-          // unreachable pockets (inside the trusted inset only)
-          if (visited && px >= m && px < origW - m && pz >= m && pz < origH - m && !visited[i]) {
+          // furniture: a cabinet blocks its cell, a desk is walked over
+          if (furn && furn[i] === 1) {
+            r = 96; g = 74; b = 40;
+          } else if (furn && furn[i] === 2) {
+            r = 154; g = 134; b = 84;
+          }
+
+          // unreachable pockets (inside the trusted inset only; cabinets are not space)
+          if (visited && px >= m && px < origW - m && pz >= m && pz < origH - m && !visited[i]
+              && !(furn && furn[i] === 1)) {
             r = r * 0.4 + COL.unreachable[0] * 0.6;
             g = g * 0.4 + COL.unreachable[1] * 0.6;
             b = b * 0.4 + COL.unreachable[2] * 0.6;
@@ -635,6 +689,8 @@
       }
     }
     ctx.putImageData(img, 0, 0);
+
+    if (state.view.lights) drawLights(res);
 
     // spawn marker
     if (res.spawn && res.spawn.inside) {
@@ -660,6 +716,33 @@
     }
   }
 
+  function drawLights(res) {
+    const W = res.W, x0 = res.x0, z0 = res.z0;
+    const D = Core.DARK_DISTRICT, E = Core.LIGHT_EVERY;
+    const tx0 = Math.floor(x0 / D), tx1 = Math.floor((x0 + W - 1) / D);
+    const tz0 = Math.floor(z0 / D), tz1 = Math.floor((z0 + W - 1) / D);
+    ctx.fillStyle = "rgba(0,0,0,.45)";
+    for (let tx = tx0; tx <= tx1; tx++) {
+      for (let tz = tz0; tz <= tz1; tz++) {
+        if (!Core.darkAt(tx * D, tz * D)) continue;
+        const px = Math.max(0, tx * D - x0), pz = Math.max(0, tz * D - z0);
+        const px1 = Math.min(W, (tx + 1) * D - x0), pz1 = Math.min(W, (tz + 1) * D - z0);
+        if (px1 > px && pz1 > pz) ctx.fillRect(px, pz, px1 - px, pz1 - pz);
+      }
+    }
+    const dot = Math.max(1, Math.round(W / 512));
+    const mod = (v) => ((v % E) + E) % E;
+    const wx0 = x0 + mod(3 - x0);
+    const wz0 = z0 + mod(3 - z0);
+    for (let wx = wx0; wx < x0 + W; wx += E) {
+      for (let wz = wz0; wz < z0 + W; wz += E) {
+        if (Core.darkAt(wx, wz)) continue;
+        ctx.fillStyle = Core.lightAt(wx, wz) ? "rgba(255,242,170,.95)" : "rgba(130,130,130,.8)";
+        ctx.fillRect(wx - x0 - (dot >> 1), wz - z0 - (dot >> 1), dot, dot);
+      }
+    }
+  }
+
   function renderStats(res) {
     const s = res.stats;
     const chips = [];
@@ -676,6 +759,11 @@
       chips.push(chip("запертых комнат", String(s.sealedRooms), s.sealedRooms === 0 ? "good" : "bad"));
     }
     chips.push(chip("комнат в кадре", String(s.roomsInner)));
+    chips.push(chip("шкафов", String(s.cabinetCount)));
+    chips.push(chip("столов", String(s.deskCount)));
+    chips.push(chip("стульев", String(s.chairCount)));
+    chips.push(chip("стеллажей", String(s.shelfCount)));
+    chips.push(chip("мелочей", String(s.extraCount)));
     chips.push(chip("пол", (s.floorMin === null ? "—" : s.floorMin.toFixed(1) + "…" + s.floorMax.toFixed(1))));
     if (window.__previewMs) chips.push(chip("рендер", window.__previewMs + " мс"));
     statsEl.innerHTML = chips.join("");
@@ -719,7 +807,8 @@
       hoverEl.innerHTML = "x=" + wx + " z=" + wz + " · блок [" + info.i + ", " + info.j + "] · <b>масса</b> (не вырезано)";
       return;
     }
-    let what = info.kind === 3 ? "комната" : info.kind === 2 ? "дверь"
+    let what = info.kind === 3 ? "комната" : info.kind === 5 ? "зал (дыра в улице)"
+      : info.kind === 2 ? "дверь"
       : info.kind === 4 ? "лестница" : "коридор";
     let text = "x=" + wx + " z=" + wz + " · блок [" + info.i + ", " + info.j + "] · <b>" +
       what + "</b> · пол y=" + (info.floorY + 1).toFixed(1);
@@ -727,6 +816,7 @@
       const layout = Core.LAYOUT_NAMES[info.block.layout] || info.block.layout;
       const lv = info.block.level;
       text += " · " + layout + " · " + (lv === 0 ? "уровень 0" : "уровень " + (lv > 0 ? "+" : "") + lv);
+      if (info.block.ceilExtra) text += " · потолок +" + info.block.ceilExtra;
       const room = info.block.rooms.find(r => wx >= r.x0 && wx <= r.x1 && wz >= r.z0 && wz <= r.z1);
       if (room) text += " · " + room.name;
     }

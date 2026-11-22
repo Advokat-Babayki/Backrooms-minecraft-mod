@@ -128,6 +128,110 @@ def panel(x, y):
     return (cl(v), cl(v), cl(v - 6), 255)
 
 
+def shade(base, d):
+    return (cl(base[0] + d), cl(base[1] + d), cl(base[2] + d), 255)
+
+
+# Furniture materials. One texture per material, mapped by the 3D models:
+# 4 px boards for wood, vertical brushing for metal, weave for fabric.
+
+def planks(base, seed):
+    def f(x, y):
+        d = int(h2(x, y, seed) * 5 - 2)
+        if y % 4 == 0:
+            d -= 24
+        if (x + (y // 4) * 5) % 11 == 0:
+            d -= 12
+        d += int(h2(x // 2, y // 4, seed + 1) * 6 - 3)
+        if h2(x, y, seed + 2) > 0.9:
+            d -= 8
+        return shade(base, d)
+    return f
+
+
+def metal(base, seed):
+    def f(x, y):
+        d = int(h2(x // 2, y, seed) * 8 - 4)
+        if x in (0, 15) or y in (0, 15):
+            d -= 22
+        if x in (2, 13) and y in (2, 13):
+            d += 30
+        return shade(base, d)
+    return f
+
+
+def fabric(base, seed):
+    def f(x, y):
+        d = int(h2(x, y, seed) * 10 - 5)
+        if (x + y) % 3 == 0:
+            d += 5
+        if h2(x, y, seed + 1) > 0.88:
+            d -= 8
+        return shade(base, d)
+    return f
+
+
+def paper(x, y):
+    d = int(h2(x, y, 81) * 4 - 2)
+    if y % 4 == 1:
+        d -= 8
+    return shade((226, 224, 213), d)
+
+
+def cardboard(x, y):
+    d = int(h2(x, y, 82) * 8 - 4)
+    if x in (0, 15) or y in (0, 15):
+        d -= 14
+    if y in (7, 8):
+        d -= 8
+    return shade((164, 128, 84), d)
+
+
+def leaf(x, y):
+    d = int(h2(x, y, 83) * 26 - 13)
+    if h2(x, y, 84) > 0.83:
+        d += 16
+    if y % 5 == 0:
+        d -= 8
+    return shade((58, 104, 50), d)
+
+
+def soil(x, y):
+    return shade((74, 55, 38), int(h2(x, y, 85) * 14 - 7))
+
+
+def water(x, y):
+    d = int(h2(x, y, 86) * 10 - 5)
+    if x % 5 == 2:
+        d += 14
+    if y % 6 == 1:
+        d += 8
+    return shade((86, 150, 196), d)
+
+
+def terracotta(x, y):
+    d = int(h2(x, y, 87) * 10 - 5)
+    if x in (0, 15) or y in (0, 15):
+        d -= 10
+    return shade((155, 88, 58), d)
+
+
+def plastic(base, seed):
+    def f(x, y):
+        d = int(h2(x, y, seed) * 4 - 2)
+        if x in (0, 15) or y in (0, 15):
+            d -= 8
+        return shade(base, d)
+    return f
+
+
+def screen(x, y):
+    d = int(h2(x, y, 88) * 4 - 2)
+    if 2 <= x <= 13 and 3 <= y <= 12 and (x + y) % 7 == 0:
+        d += 24
+    return shade((26, 30, 30), d)
+
+
 # Almond water: Victoria's Kitchen bottle from the reference photo. 16 px cannot
 # hold the label text, so the wordmark is a two-row dark block, the ribbon a
 # light band and the almond flower two bright pixels.
@@ -212,6 +316,22 @@ def main():
         "moist_carpet": tex(carpet),
         "ceiling_tile": tex(ceiling),
         "fluorescent_panel": tex(panel),
+        "wood_oak": tex(planks((176, 140, 88), 101)),
+        "wood_spruce": tex(planks((146, 112, 70), 102)),
+        "wood_dark": tex(planks((96, 70, 42), 103)),
+        "metal_light": tex(metal((150, 155, 160), 104)),
+        "metal_dark": tex(metal((92, 98, 104), 105)),
+        "fabric_black": tex(fabric((46, 46, 52), 106)),
+        "fabric_brown": tex(fabric((92, 60, 40), 107)),
+        "paper_white": tex(paper),
+        "cardboard": tex(cardboard),
+        "leaf_green": tex(leaf),
+        "soil": tex(soil),
+        "water_blue": tex(water),
+        "terracotta": tex(terracotta),
+        "plastic_white": tex(plastic((222, 220, 212), 108)),
+        "plastic_grey": tex(plastic((132, 134, 136), 109)),
+        "screen_black": tex(screen),
     }
     for name, px in textures.items():
         save(os.path.join(BLOCK, name + ".png"), px)
@@ -229,6 +349,11 @@ def main():
     gap = sum(abs(ceiling(0, y)[c] - ceiling(15, y)[c]) for y in range(16) for c in range(3))
     print(f"  ceiling border gap {gap // 16} (must be > 40, dark seam vs lit edge)")
     assert gap // 16 > 40, "ceiling seam doubles at the block border"
+    # Wood species must stay distinguishable in the world.
+    lum = lambda px: sum(sum(c[:3]) for row in px for c in row) // (16 * 16 * 3)
+    print(f"  wood luminance oak/spruce/dark {lum(textures['wood_oak'])}"
+          f"/{lum(textures['wood_spruce'])}/{lum(textures['wood_dark'])}")
+    assert lum(textures["wood_oak"]) > lum(textures["wood_spruce"]) > lum(textures["wood_dark"])
 
     for name, px in textures.items():
         save(os.path.join(PREVIEW, name + "_3x3.png"), upscale(tile(px, 3), 4))

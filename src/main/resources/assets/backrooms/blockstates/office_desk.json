@@ -1,0 +1,49 @@
+{
+  "variants": {
+    "facing=north,variant=0": {
+      "model": "backrooms:block/office_desk_oak"
+    },
+    "facing=east,variant=0": {
+      "model": "backrooms:block/office_desk_oak",
+      "y": 90
+    },
+    "facing=south,variant=0": {
+      "model": "backrooms:block/office_desk_oak",
+      "y": 180
+    },
+    "facing=west,variant=0": {
+      "model": "backrooms:block/office_desk_oak",
+      "y": 270
+    },
+    "facing=north,variant=1": {
+      "model": "backrooms:block/office_desk_spruce"
+    },
+    "facing=east,variant=1": {
+      "model": "backrooms:block/office_desk_spruce",
+      "y": 90
+    },
+    "facing=south,variant=1": {
+      "model": "backrooms:block/office_desk_spruce",
+      "y": 180
+    },
+    "facing=west,variant=1": {
+      "model": "backrooms:block/office_desk_spruce",
+      "y": 270
+    },
+    "facing=north,variant=2": {
+      "model": "backrooms:block/office_desk_dark"
+    },
+    "facing=east,variant=2": {
+      "model": "backrooms:block/office_desk_dark",
+      "y": 90
+    },
+    "facing=south,variant=2": {
+      "model": "backrooms:block/office_desk_dark",
+      "y": 180
+    },
+    "facing=west,variant=2": {
+      "model": "backrooms:block/office_desk_dark",
+      "y": 270
+    }
+  }
+}

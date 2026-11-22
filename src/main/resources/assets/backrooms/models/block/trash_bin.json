@@ -1,0 +1,107 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "particle": "backrooms:block/metal_dark",
+    "metal_dark": "backrooms:block/metal_dark",
+    "metal_light": "backrooms:block/metal_light",
+    "paper_white": "backrooms:block/paper_white"
+  },
+  "elements": [
+    {
+      "from": [
+        4,
+        0,
+        4
+      ],
+      "to": [
+        12,
+        9,
+        12
+      ],
+      "faces": {
+        "down": {
+          "texture": "#metal_dark"
+        },
+        "up": {
+          "texture": "#metal_dark"
+        },
+        "north": {
+          "texture": "#metal_dark"
+        },
+        "south": {
+          "texture": "#metal_dark"
+        },
+        "west": {
+          "texture": "#metal_dark"
+        },
+        "east": {
+          "texture": "#metal_dark"
+        }
+      }
+    },
+    {
+      "from": [
+        3,
+        9,
+        3
+      ],
+      "to": [
+        13,
+        10,
+        13
+      ],
+      "faces": {
+        "down": {
+          "texture": "#metal_light"
+        },
+        "up": {
+          "texture": "#metal_light"
+        },
+        "north": {
+          "texture": "#metal_light"
+        },
+        "south": {
+          "texture": "#metal_light"
+        },
+        "west": {
+          "texture": "#metal_light"
+        },
+        "east": {
+          "texture": "#metal_light"
+        }
+      }
+    },
+    {
+      "from": [
+        6,
+        10,
+        6
+      ],
+      "to": [
+        10,
+        12,
+        10
+      ],
+      "faces": {
+        "down": {
+          "texture": "#paper_white"
+        },
+        "up": {
+          "texture": "#paper_white"
+        },
+        "north": {
+          "texture": "#paper_white"
+        },
+        "south": {
+          "texture": "#paper_white"
+        },
+        "west": {
+          "texture": "#paper_white"
+        },
+        "east": {
+          "texture": "#paper_white"
+        }
+      }
+    }
+  ]
+}

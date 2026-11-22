@@ -44,10 +44,23 @@ public final class BackroomsCommands {
 
     private static int enter(CommandSourceStack source) throws CommandSyntaxException {
         ServerPlayer player = source.getPlayerOrException();
-        ServerLevel level0 = source.getServer().getLevel(LEVEL0);
-        if (level0 == null) {
+        if (!noclipIntoLevel0(player)) {
             source.sendFailure(Component.literal("Level 0 dimension is missing"));
             return 0;
+        }
+        source.sendSuccess(() -> Component.literal("You noclipped into the Backrooms. Mind the hum."), false);
+        return Command.SINGLE_SUCCESS;
+    }
+
+    /**
+     * Moves a player into Level 0 and remembers where they came from, so
+     * /backrooms leave works no matter how they got in. Returns false when the
+     * dimension is missing.
+     */
+    static boolean noclipIntoLevel0(ServerPlayer player) {
+        ServerLevel level0 = player.server.getLevel(LEVEL0);
+        if (level0 == null) {
+            return false;
         }
         RETURN_POINTS.put(player.getUUID(), new ReturnPoint(player.level().dimension(), player.getX(), player.getY(), player.getZ()));
         // Same maze_seed the dimension JSON uses. The entry point is the center
@@ -56,8 +69,7 @@ public final class BackroomsCommands {
         int[] spawn = plan.spawnPoint();
         player.teleportTo(level0, spawn[0] + 0.5, spawn[2] + 1.0, spawn[1] + 0.5,
                 player.getYRot(), player.getXRot());
-        source.sendSuccess(() -> Component.literal("You noclipped into the Backrooms. Mind the hum."), false);
-        return Command.SINGLE_SUCCESS;
+        return true;
     }
 
     /**
@@ -89,6 +101,7 @@ public final class BackroomsCommands {
             case "hall" -> "OPEN HALL (открытый зал)";
             case "offices" -> "OFFICES (кабинеты)";
             case "suite" -> "SUITE (сьют)";
+            case "plaza" -> "PLAZA (плаза)";
             default -> "MERGED ROOMS (объединённые комнаты)";
         };
         String place = roomName != null ? roomName : "коридор";
@@ -116,6 +129,10 @@ public final class BackroomsCommands {
             return 0;
         }
         player.teleportTo(target, point.x(), point.y(), point.z(), player.getYRot(), player.getXRot());
+        // Leaving the Backrooms must not drag the player back on their next death.
+        if (player.getRespawnPosition() != null && BackroomsRespawnHandler.isBackrooms(player.getRespawnDimension())) {
+            player.setRespawnPosition(net.minecraft.world.level.Level.OVERWORLD, null, 0.0F, false, false);
+        }
         source.sendSuccess(() -> Component.literal("You noclipped back to reality."), false);
         return Command.SINGLE_SUCCESS;
     }

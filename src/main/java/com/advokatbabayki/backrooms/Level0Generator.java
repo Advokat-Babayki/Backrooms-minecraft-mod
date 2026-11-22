@@ -8,6 +8,9 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.LevelHeightAccessor;
@@ -16,8 +19,11 @@ import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.biome.BiomeManager;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.SlabBlock;
 import net.minecraft.world.level.block.StairBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.SlabType;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -26,6 +32,7 @@ import net.minecraft.world.level.levelgen.GenerationStep;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.blending.Blender;
+import net.minecraft.world.level.storage.loot.LootTable;
 
 /**
  * Level 0: a solid wallpaper mass carved into an axis-aligned office plan
@@ -44,7 +51,11 @@ public class Level0Generator extends ChunkGenerator {
 
     private static final int FILL_MIN_Y = 60;
     private static final int FILL_TOP_Y = 105;
-    private static final int LIGHT_EVERY = 6;
+    private static final int CEIL_MAX_Y = 100;
+
+    private static final ResourceKey<LootTable> CABINET_LOOT = ResourceKey.create(
+            Registries.LOOT_TABLE,
+            ResourceLocation.fromNamespaceAndPath("backrooms", "chests/level0_cabinet"));
 
     private final Level0Plan plan;
 
@@ -91,33 +102,33 @@ public class Level0Generator extends ChunkGenerator {
 
         // ---- streets ----
         for (int i = xs[0]; i <= xs[1]; i++) {
-            int sx = plan.streetX(i);
             int half = plan.streetHalf(i);
             for (int j = zs[0]; j <= zs[1]; j++) {
                 if (!plan.segV(i, j)) continue;
-                int za = Math.max(plan.streetZ(j), baseZ);
-                int zb = Math.min(plan.streetZ(j + 1), baseZ + 15);
+                int sx = plan.streetX(i, j);
+                int za = Math.max(plan.streetZ(j, i), baseZ);
+                int zb = Math.min(plan.streetZ(j + 1, i), baseZ + 15);
                 for (int x = sx - half; x <= sx + half; x++) {
                     for (int z = za; z <= zb; z++) {
                         if (x < baseX || x > baseX + 15) continue;
                         carveColumn(chunk, x, z, Level0Plan.STREET_FLOOR_HALF,
-                                carpet, ceilingTile, light, air, slabBottom);
+                                carpet, ceilingTile, light, air, slabBottom, 0);
                     }
                 }
             }
         }
         for (int j = zs[0]; j <= zs[1]; j++) {
-            int sz = plan.streetZ(j);
             int half = plan.streetHalf(j);
             for (int i = xs[0]; i <= xs[1]; i++) {
                 if (!plan.segH(i, j)) continue;
-                int xa = Math.max(plan.streetX(i), baseX);
-                int xb = Math.min(plan.streetX(i + 1), baseX + 15);
+                int sz = plan.streetZ(j, i);
+                int xa = Math.max(Math.min(plan.streetX(i, j - 1), plan.streetX(i, j)), baseX);
+                int xb = Math.min(Math.max(plan.streetX(i + 1, j - 1), plan.streetX(i + 1, j)), baseX + 15);
                 for (int z = sz - half; z <= sz + half; z++) {
                     for (int x = xa; x <= xb; x++) {
                         if (z < baseZ || z > baseZ + 15) continue;
                         carveColumn(chunk, x, z, Level0Plan.STREET_FLOOR_HALF,
-                                carpet, ceilingTile, light, air, slabBottom);
+                                carpet, ceilingTile, light, air, slabBottom, 0);
                     }
                 }
             }
@@ -140,7 +151,7 @@ public class Level0Generator extends ChunkGenerator {
                     for (int x = x0; x <= x1; x++) {
                         for (int z = z0; z <= z1; z++) {
                             carveColumn(chunk, x, z, blockHalf,
-                                    carpet, ceilingTile, light, air, slabBottom);
+                                    carpet, ceilingTile, light, air, slabBottom, block.ceilExtra());
                         }
                     }
                 }
@@ -152,15 +163,15 @@ public class Level0Generator extends ChunkGenerator {
                     int z1 = Math.min(solid.z1(), baseZ + 15);
                     for (int x = x0; x <= x1; x++) {
                         for (int z = z0; z <= z1; z++) {
-                            fillSolid(chunk, x, z, blockHalf, wallpaper);
+                            fillSolid(chunk, x, z, blockHalf, wallpaper, block.ceilExtra());
                         }
                     }
                 }
 
                 for (Level0Plan.Door door : block.doors()) {
-                    boolean streetDoor = door.x0() == block.x0() || door.x1() == block.x1()
-                            || door.z0() == block.z0() || door.z1() == block.z1();
+                    boolean streetDoor = isStreetDoor(block, door);
                     int doorHalf = streetDoor ? Level0Plan.STREET_FLOOR_HALF : blockHalf;
+                    int doorCeil = streetDoor ? 0 : block.ceilExtra();
                     int x0 = Math.max(door.x0(), baseX);
                     int x1 = Math.min(door.x1(), baseX + 15);
                     int z0 = Math.max(door.z0(), baseZ);
@@ -168,32 +179,124 @@ public class Level0Generator extends ChunkGenerator {
                     for (int x = x0; x <= x1; x++) {
                         for (int z = z0; z <= z1; z++) {
                             carveColumn(chunk, x, z, doorHalf,
-                                    carpet, ceilingTile, light, air, slabBottom);
+                                    carpet, ceilingTile, light, air, slabBottom, doorCeil);
                         }
                     }
                 }
 
+                // Level halves are always even, so the block ceiling is floor + 4 + lift.
+                int blockCeilY = Math.min(blockHalf / 2 + 4 + block.ceilExtra(), CEIL_MAX_Y);
                 for (Level0Plan.StairStep step : block.stairs()) {
                     if (step.x() < baseX || step.x() > baseX + 15
                             || step.z() < baseZ || step.z() > baseZ + 15) continue;
-                    carveStair(chunk, step, blockHalf / 2, carpetStair,
+                    carveStair(chunk, step, blockHalf / 2, blockCeilY, carpetStair,
                             wallpaper, ceilingTile, light, air);
                 }
+            }
+        }
+
+        // ---- halls in place of missing street segments ----
+        for (int i = xs[0]; i <= xs[1]; i++) {
+            for (int j = zs[0]; j <= zs[1]; j++) {
+                carveHall(chunk, i, j, true, carpet, ceilingTile, light, air, slabBottom);
+                carveHall(chunk, i, j, false, carpet, ceilingTile, light, air, slabBottom);
+            }
+        }
+
+        // ---- furniture last, so no carve above can wipe it out ----
+        for (int i = xs[0]; i <= xs[1]; i++) {
+            for (int j = zs[0]; j <= zs[1]; j++) {
+                Level0Plan.Block block = plan.block(i, j);
+                if (block == null) continue;
+                if (block.x1() < baseX || block.x0() > baseX + 15
+                        || block.z1() < baseZ || block.z0() > baseZ + 15) continue;
+                placeFurniture(chunk, block);
             }
         }
 
         return CompletableFuture.completedFuture(chunk);
     }
 
+    /** Room furniture above the floor of its block, clipped to this chunk. */
+    private void placeFurniture(ChunkAccess chunk, Level0Plan.Block block) {
+        // levelHalf is always even.
+        int floorY = Level0Plan.levelHalf(block.level()) / 2 + 1;
+        for (Level0Plan.Furniture f : block.furniture()) {
+            if (f.x() < chunk.getPos().getMinBlockX() || f.x() > chunk.getPos().getMaxBlockX()
+                    || f.z() < chunk.getPos().getMinBlockZ()
+                    || f.z() > chunk.getPos().getMaxBlockZ()) continue;
+            BlockPos pos = new BlockPos(f.x(), floorY + f.dy(), f.z());
+            BlockState state = furnitureState(f);
+            chunk.setBlockState(pos, state, false);
+            if (!f.kind().equals("cabinet")) continue;
+            BlockEntity be = chunk.getBlockEntity(pos);
+            if (be == null && state.getBlock() instanceof EntityBlock entityBlock) {
+                be = entityBlock.newBlockEntity(pos, state);
+                if (be != null) chunk.setBlockEntity(be);
+            }
+            if (be instanceof RandomizableContainerBlockEntity container) {
+                container.setLootTable(CABINET_LOOT, plan.furnitureLootSeed(f.x(), f.z()));
+            }
+        }
+    }
+
+    private static BlockState furnitureState(Level0Plan.Furniture f) {
+        BlockState state = switch (f.kind()) {
+            case "desk" -> BackroomsBlocks.OFFICE_DESK.get().defaultBlockState();
+            case "chair" -> BackroomsBlocks.OFFICE_CHAIR.get().defaultBlockState();
+            case "cabinet" -> BackroomsBlocks.FILING_CABINET.get().defaultBlockState();
+            case "shelf" -> BackroomsBlocks.OFFICE_SHELF.get().defaultBlockState();
+            case "cooler" -> BackroomsBlocks.WATER_COOLER.get().defaultBlockState();
+            case "plant" -> BackroomsBlocks.POTTED_PLANT.get().defaultBlockState();
+            case "trash" -> BackroomsBlocks.TRASH_BIN.get().defaultBlockState();
+            case "printer" -> BackroomsBlocks.PRINTER.get().defaultBlockState();
+            default -> throw new IllegalArgumentException("Unknown furniture kind " + f.kind());
+        };
+        if (state.hasProperty(FurnitureBlock.VARIANT_THREE)) {
+            state = state.setValue(FurnitureBlock.VARIANT_THREE, f.variant());
+        } else if (state.hasProperty(FurnitureBlock.VARIANT_TWO)) {
+            state = state.setValue(FurnitureBlock.VARIANT_TWO, f.variant());
+        }
+        return state.setValue(FurnitureBlock.FACING, Direction.byName(f.facing()));
+    }
+
+    /** A room that replaced a missing street segment; carved after the blocks. */
+    private void carveHall(ChunkAccess chunk, int i, int j, boolean vertical,
+            BlockState carpet, BlockState ceilingTile, BlockState light, BlockState air,
+            BlockState slabBottom) {
+        int[] hall = plan.hallRect(i, j, vertical);
+        if (hall == null) return;
+        int x0 = Math.max(hall[0], chunk.getPos().getMinBlockX());
+        int x1 = Math.min(hall[1], chunk.getPos().getMaxBlockX());
+        int z0 = Math.max(hall[2], chunk.getPos().getMinBlockZ());
+        int z1 = Math.min(hall[3], chunk.getPos().getMaxBlockZ());
+        Level0Plan.Block a = vertical ? plan.block(i - 1, j) : plan.block(i, j - 1);
+        int hallHalf = a == null ? Level0Plan.STREET_FLOOR_HALF : Level0Plan.levelHalf(a.level());
+        for (int x = x0; x <= x1; x++) {
+            for (int z = z0; z <= z1; z++) {
+                carveColumn(chunk, x, z, hallHalf,
+                        carpet, ceilingTile, light, air, slabBottom, 0);
+            }
+        }
+    }
+
+    /** A street door only counts when that street segment actually exists. */
+    private boolean isStreetDoor(Level0Plan.Block block, Level0Plan.Door door) {
+        return (door.z0() == block.z0() && plan.segH(block.i(), block.j()))
+                || (door.z1() == block.z1() && plan.segH(block.i(), block.j() + 1))
+                || (door.x0() == block.x0() && plan.segV(block.i(), block.j()))
+                || (door.x1() == block.x1() && plan.segV(block.i() + 1, block.j()));
+    }
+
     /** One carved column at the continuous floor height. */
     private void carveColumn(ChunkAccess chunk, int x, int z, int s,
             BlockState carpet, BlockState ceilingTile, BlockState light, BlockState air,
-            BlockState slabBottom) {
+            BlockState slabBottom, int ceilUp) {
         if (x < chunk.getPos().getMinBlockX() || x > chunk.getPos().getMaxBlockX()
                 || z < chunk.getPos().getMinBlockZ() || z > chunk.getPos().getMaxBlockZ()) return;
         boolean half = (s & 1) != 0;
         int y0 = half ? (s - 1) / 2 : s / 2;
-        int ceilY = y0 + (half ? 5 : 4);
+        int ceilY = Math.min(y0 + (half ? 5 : 4) + ceilUp, CEIL_MAX_Y);
 
         for (int y = y0 + 1; y < ceilY; y++) {
             chunk.setBlockState(new BlockPos(x, y, z), air, false);
@@ -203,13 +306,12 @@ public class Level0Generator extends ChunkGenerator {
             chunk.setBlockState(new BlockPos(x, y0 + 1, z),
                     slabBottom.setValue(SlabBlock.TYPE, SlabType.BOTTOM), false);
         }
-        BlockState ceilingState = Math.floorMod(x, LIGHT_EVERY) == 3
-                && Math.floorMod(z, LIGHT_EVERY) == 3 ? light : ceilingTile;
+        BlockState ceilingState = plan.lightAt(x, z) ? light : ceilingTile;
         chunk.setBlockState(new BlockPos(x, ceilY, z), ceilingState, false);
     }
 
     /** One carpet stair block: mass under the tread, air above it, ceiling over that. */
-    private void carveStair(ChunkAccess chunk, Level0Plan.StairStep step, int roomY,
+    private void carveStair(ChunkAccess chunk, Level0Plan.StairStep step, int roomY, int blockCeilY,
             BlockState stair, BlockState wallpaper, BlockState ceilingTile, BlockState light,
             BlockState air) {
         int x = step.x();
@@ -217,11 +319,13 @@ public class Level0Generator extends ChunkGenerator {
         if (x < chunk.getPos().getMinBlockX() || x > chunk.getPos().getMaxBlockX()
                 || z < chunk.getPos().getMinBlockZ() || z > chunk.getPos().getMaxBlockZ()) return;
         int y = step.y();
-        int ceilY = y + 4;
+        // A raised room already caps its stairwell; a lowered one needs the stepped
+        // soffit, but it must never hang lower than the block ceiling.
+        int ceilY = Math.max(y + 4, blockCeilY);
         for (int fy = roomY; fy < y; fy++) {
             chunk.setBlockState(new BlockPos(x, fy, z), wallpaper, false);
         }
-        for (int ay = y + 1; ay < ceilY; ay++) {
+        for (int ay = y + 1; ay < y + 4; ay++) {
             chunk.setBlockState(new BlockPos(x, ay, z), air, false);
         }
         Direction facing = switch (step.facing()) {
@@ -231,18 +335,17 @@ public class Level0Generator extends ChunkGenerator {
             default -> Direction.WEST;
         };
         chunk.setBlockState(new BlockPos(x, y, z), stair.setValue(StairBlock.FACING, facing), false);
-        BlockState ceilingState = Math.floorMod(x, LIGHT_EVERY) == 3
-                && Math.floorMod(z, LIGHT_EVERY) == 3 ? light : ceilingTile;
+        BlockState ceilingState = plan.lightAt(x, z) ? light : ceilingTile;
         chunk.setBlockState(new BlockPos(x, ceilY, z), ceilingState, false);
     }
 
     /** A column or a partial partition: solid wallpaper from floor to ceiling. */
-    private void fillSolid(ChunkAccess chunk, int x, int z, int s, BlockState wallpaper) {
+    private void fillSolid(ChunkAccess chunk, int x, int z, int s, BlockState wallpaper, int ceilUp) {
         if (x < chunk.getPos().getMinBlockX() || x > chunk.getPos().getMaxBlockX()
                 || z < chunk.getPos().getMinBlockZ() || z > chunk.getPos().getMaxBlockZ()) return;
         boolean half = (s & 1) != 0;
         int y0 = half ? (s - 1) / 2 : s / 2;
-        int ceilY = y0 + (half ? 5 : 4);
+        int ceilY = Math.min(y0 + (half ? 5 : 4) + ceilUp, CEIL_MAX_Y);
         for (int y = y0; y <= ceilY; y++) {
             chunk.setBlockState(new BlockPos(x, y, z), wallpaper, false);
         }

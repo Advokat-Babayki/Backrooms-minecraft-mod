@@ -27,7 +27,8 @@ public class BackroomsMod {
     public static final DeferredRegister.Items ITEMS = BackroomsBlocks.ITEMS;
     public static final DeferredRegister<CreativeModeTab> CREATIVE_MODE_TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MODID);
 
-    public static final DeferredItem<Item> ALMOND_WATER = ITEMS.registerSimpleItem("almond_water");
+    public static final DeferredItem<AlmondWaterItem> ALMOND_WATER = ITEMS.registerItem("almond_water",
+            AlmondWaterItem::new, new Item.Properties().food(AlmondWaterItem.FOOD));
 
     public static final DeferredHolder<CreativeModeTab, CreativeModeTab> BACKROOMS_TAB = CREATIVE_MODE_TABS.register("backrooms_tab", () -> CreativeModeTab.builder()
             .title(Component.translatable("itemGroup.backrooms"))
@@ -41,11 +42,20 @@ public class BackroomsMod {
                 output.accept(BackroomsBlocks.WALLPAPER_SLAB_ITEM.get());
                 output.accept(BackroomsBlocks.RED_WALLPAPER_ITEM.get());
                 output.accept(BackroomsBlocks.CARPET_STAIRS_ITEM.get());
+                output.accept(BackroomsBlocks.FILING_CABINET_ITEM.get());
+                output.accept(BackroomsBlocks.OFFICE_DESK_ITEM.get());
+                output.accept(BackroomsBlocks.OFFICE_CHAIR_ITEM.get());
+                output.accept(BackroomsBlocks.OFFICE_SHELF_ITEM.get());
+                output.accept(BackroomsBlocks.WATER_COOLER_ITEM.get());
+                output.accept(BackroomsBlocks.POTTED_PLANT_ITEM.get());
+                output.accept(BackroomsBlocks.TRASH_BIN_ITEM.get());
+                output.accept(BackroomsBlocks.PRINTER_ITEM.get());
             }).build());
 
     public BackroomsMod(IEventBus modEventBus, ModContainer modContainer) {
         modEventBus.addListener(this::commonSetup);
         BackroomsBlocks.BLOCKS.register(modEventBus);
+        BackroomsBlockEntities.BLOCK_ENTITY_TYPES.register(modEventBus);
         ITEMS.register(modEventBus);
         CREATIVE_MODE_TABS.register(modEventBus);
         BackroomsWorldgen.GENERATORS.register(modEventBus);

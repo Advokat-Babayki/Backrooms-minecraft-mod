@@ -42,5 +42,9 @@ run/
 repo/
 !**/src/**/repo/
 
+### Python ###
+__pycache__/
+*.pyc
+
 ### Reference art ###
 Для вдохновения/

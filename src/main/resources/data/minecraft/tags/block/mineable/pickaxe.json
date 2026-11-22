@@ -1,0 +1,9 @@
+{
+  "replace": false,
+  "values": [
+    "backrooms:filing_cabinet",
+    "backrooms:water_cooler",
+    "backrooms:trash_bin",
+    "backrooms:printer"
+  ]
+}
