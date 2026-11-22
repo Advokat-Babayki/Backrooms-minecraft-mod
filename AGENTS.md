@@ -39,7 +39,8 @@ needs network access for NeoForge and Parchment.
 | `src/main/templates/META-INF/neoforge.mods.toml` | Metadata template expanded from `gradle.properties`. |
 | `tools/level0-preview/` | Standalone HTML/JS preview of the plan; `core.js` is a port of `Level0Plan.java`. |
 | `gen_hum.py` | Generates `hum.ogg`. |
-| `gen_textures.py` | Generates block textures. |
+| `gen_textures.py` | Generates block and furniture material textures. |
+| `gen_furniture_models.py` | Generates furniture block models, blockstates and item models. |
 
 ## Hard invariants
 
@@ -58,12 +59,17 @@ needs network access for NeoForge and Parchment.
    maze than the one that is generated.
 4. **Vertical budget.** Generator depth is 128. Solid mass is y=60..105. Base
    floor is y=64, each level shifts it by ±3. A carved column's ceiling sits at
-   floor + 4, or floor + 5 when a bottom slab is present. Never carve outside the
-   mass, and never let a raised district's ceiling exceed `FILL_TOP_Y`.
+   floor + 4, or floor + 5 when a bottom slab is present; halls add up to
+   `HALL_CEIL_MAX` more, hard-capped at y=100. Streets and gap halls stay at
+   +4/5. A stair column is capped at `max(tread + 4, block ceiling)`: a raised
+   stairwell stays open to the room, a lowered one keeps its stepped soffit and
+   never hangs below that ceiling. Never carve outside the mass, and never let a
+   raised district's ceiling exceed `FILL_TOP_Y`.
 5. **Reachability.** Doors are 3 blocks wide (`DOOR_WIDTH`). Every room must be
    reachable from spawn. Raised/lowered blocks get `LEVEL_HEIGHT` carpet stair
    blocks at one street door; solids that would cover a stair are dropped in
-   `computeBlock`. Keep it that way.
+   `computeBlock`. Blocks of one raised district also join through halls at the
+   district floor. Keep it that way.
 6. **Hum.** The biome has exactly one sound: `ambient_sound: backrooms:hum`. Do
    not add `additions_sound` or `mood_sound` — they restart the loop at full
    volume and caused the abrupt hum fixed in commit `8a0a07c`.
@@ -73,8 +79,22 @@ needs network access for NeoForge and Parchment.
    Edit the scripts, not the binaries.
 8. **New block checklist.** Register in `BackroomsBlocks`, add the item to the
    creative tab in `BackroomsMod`, add `en_us` and `ru_ru` names, blockstate,
-   block and item models, texture. Blocks are intentionally unbreakable:
-   `strength(-1, 3600000)`.
+   block and item models, texture. Structure blocks (wallpaper, carpet,
+   ceiling, slab, stairs) are intentionally unbreakable:
+   `strength(-1, 3600000)`. Furniture is the only breakable family: wood is
+   `strength(2.0, 3.0)` and mines with an axe, metal `strength(3.5, 6.0)` with
+   a pickaxe. Each furniture block has a loot table in
+   `data/backrooms/loot_table/blocks/`: wooden pieces salvage into their own
+   planks, metal into iron nuggets, and the filing cabinet spills its contents
+   through `Containers.dropContentsOnDestroy`. Furniture models, blockstates
+   and item models come from `gen_furniture_models.py`; edit the script, not
+   the JSON.
+9. **Respawn.** Dying in a `backrooms:*` dimension keeps the player on that
+   level: a bed set in that level wins, otherwise `BackroomsRespawnHandler`
+   redirects the respawn to the level-0 entry point and leaves the player's
+   own respawn data untouched. `/backrooms leave` clears a Backrooms respawn
+   point. Bed sleeping needs `bed_works` and `natural` in the level-0
+   dimension type; do not turn either off.
 
 ## Verify worldgen changes
 
@@ -112,6 +132,4 @@ intentional changes; unreachable carved space and sealed rooms must stay at zero
 
 ## Known dead code
 
-`MAX_ROOMS` in `Level0Plan`, `smooth()` and `SALT_FLOOR` (both Java and JS) are
-unused. The `maxRooms` slider in the preview does nothing. Remove them instead of
-building on them.
+None currently known.
