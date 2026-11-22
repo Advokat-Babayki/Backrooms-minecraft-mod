@@ -27,10 +27,10 @@ needs network access for NeoForge and Parchment.
 
 | Path | Role |
 |---|---|
-| `src/main/java/.../Level0Plan.java` | Pure plan of the level: street grid, blocks, rooms, doors, columns, stairs. All tunables live here as `public static final`. |
-| `src/main/java/.../Level0Generator.java` | Writes the plan into chunk blocks: solid mass, carving, ceilings, lights. |
+| `src/main/java/.../Level0Plan.java` | Pure plan of the level: street grid, blocks, rooms, doors, columns, stairs, furniture and rare piles. All tunables live here as `public static final`. |
+| `src/main/java/.../Level0Generator.java` | Writes the plan into chunk blocks: solid mass, carving, ceilings, lights, furniture. |
 | `src/main/java/.../BackroomsWorldgen.java` | Registers the `backrooms:level0` chunk generator codec. |
-| `src/main/java/.../BackroomsCommands.java` | `/backrooms enter`, `leave`, `room`. |
+| `src/main/java/.../BackroomsCommands.java` | `/backrooms enter`, `leave`, `room`, `anomaly` (nearest furniture pile). |
 | `src/main/java/.../BackroomsBlocks.java` | Blocks and block items. |
 | `src/main/java/.../BackroomsMod.java` | Mod entry point and creative tab. |
 | `src/main/java/.../BackroomsSounds.java` | `backrooms:hum` sound event. |

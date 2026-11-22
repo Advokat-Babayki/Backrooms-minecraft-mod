@@ -735,6 +735,64 @@ public final class Level0Plan {
         out.add(new Furniture(x, z, dy, kind, facing, variantOf(kind, x, z)));
     }
 
+    /**
+     * Nearest furniture pile to a point, as {x, z, floorY, standX, standZ}.
+     * Null when no pile exists within the scanned block square.
+     */
+    @Nullable
+    public int[] nearestPile(int x, int z, int radiusBlocks) {
+        int[] cell = blockOf(x, z);
+        int[] best = null;
+        long bestDist = Long.MAX_VALUE;
+        for (int di = -radiusBlocks; di <= radiusBlocks; di++) {
+            for (int dj = -radiusBlocks; dj <= radiusBlocks; dj++) {
+                Block b = block(cell[0] + di, cell[1] + dj);
+                if (b == null) continue;
+                Furniture top = null;
+                for (Furniture f : b.furniture()) {
+                    if (f.dy() == 2) {
+                        top = f;
+                        break;
+                    }
+                }
+                if (top == null) continue;
+                long dx = top.x() - x;
+                long dz = top.z() - z;
+                long dist = dx * dx + dz * dz;
+                if (dist >= bestDist) continue;
+                int[] stand = pileStand(top.x(), top.z(), b);
+                if (stand == null) continue;
+                bestDist = dist;
+                best = new int[] { top.x(), top.z(), levelHalf(b.level()) / 2, stand[0], stand[1] };
+            }
+        }
+        return best;
+    }
+
+    /** A free room cell two or three blocks away from a pile center. */
+    @Nullable
+    private int[] pileStand(int cx, int cz, Block b) {
+        for (int r = 2; r <= 3; r++) {
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != r) continue;
+                    int x = cx + dx, z = cz + dz;
+                    boolean inRoom = false;
+                    for (Room room : b.rooms()) {
+                        if (x >= room.x0() && x <= room.x1() && z >= room.z0() && z <= room.z1()) {
+                            inRoom = true;
+                            break;
+                        }
+                    }
+                    if (!inRoom || onSolid(b.solids(), x, z) || inDoor(b.doors(), x, z)
+                            || nearStair(b.stairs(), x, z) || hasFurniture(b.furniture(), x, z)) continue;
+                    return new int[] { x, z };
+                }
+            }
+        }
+        return null;
+    }
+
     private void addWallFurniture(List<Furniture> out, Room r, int want, String kind,
             List<Door> doors, List<Solid> solids, List<StairStep> stairs,
             int bx0, int bx1, int bz0, int bz1) {

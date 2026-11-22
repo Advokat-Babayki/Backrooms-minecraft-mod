@@ -21,7 +21,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 
 /**
- * Dev/teleport commands: /backrooms enter, /backrooms leave.
+ * Dev/teleport commands: /backrooms enter, leave, room, anomaly.
  * Later: /backrooms level <n> for jumping between levels during development.
  */
 @EventBusSubscriber(modid = BackroomsMod.MODID)
@@ -31,6 +31,7 @@ public final class BackroomsCommands {
 
     private record ReturnPoint(ResourceKey<net.minecraft.world.level.Level> dimension, double x, double y, double z) {}
     private static final Map<UUID, ReturnPoint> RETURN_POINTS = new HashMap<>();
+    private static final int ANOMALY_SEARCH = 24;
 
     private BackroomsCommands() {}
 
@@ -39,7 +40,8 @@ public final class BackroomsCommands {
         event.getDispatcher().register(Commands.literal("backrooms")
                 .then(Commands.literal("enter").executes(ctx -> enter(ctx.getSource())))
                 .then(Commands.literal("leave").executes(ctx -> leave(ctx.getSource())))
-                .then(Commands.literal("room").executes(ctx -> whereRoom(ctx.getSource()))));
+                .then(Commands.literal("room").executes(ctx -> whereRoom(ctx.getSource())))
+                .then(Commands.literal("anomaly").executes(ctx -> warpToAnomaly(ctx.getSource()))));
     }
 
     private static int enter(CommandSourceStack source) throws CommandSyntaxException {
@@ -70,6 +72,31 @@ public final class BackroomsCommands {
         player.teleportTo(level0, spawn[0] + 0.5, spawn[2] + 1.0, spawn[1] + 0.5,
                 player.getYRot(), player.getXRot());
         return true;
+    }
+
+    /** Warps to the nearest furniture pile, entering Level 0 first if needed. */
+    private static int warpToAnomaly(CommandSourceStack source) throws CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
+        ServerLevel level0 = source.getServer().getLevel(LEVEL0);
+        if (level0 == null) {
+            source.sendFailure(Component.literal("Level 0 dimension is missing"));
+            return 0;
+        }
+        if (!player.level().dimension().equals(LEVEL0)) {
+            noclipIntoLevel0(player);
+        }
+        Level0Plan plan = new Level0Plan(0L);
+        int[] pile = plan.nearestPile(Mth.floor(player.getX()), Mth.floor(player.getZ()),
+                ANOMALY_SEARCH);
+        if (pile == null) {
+            source.sendFailure(Component.literal("Рядом нет мебельных аномалий."));
+            return 0;
+        }
+        player.teleportTo(level0, pile[3] + 0.5, pile[2] + 1.0, pile[4] + 0.5,
+                player.getYRot(), player.getXRot());
+        source.sendSuccess(() -> Component.literal(String.format(
+                "Варп к мебельной аномалии x=%d, z=%d.", pile[0], pile[1])), false);
+        return Command.SINGLE_SUCCESS;
     }
 
     /**
